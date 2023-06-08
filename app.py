@@ -23,7 +23,7 @@ import openai
 import os
 
 app = Flask(__name__)
-CORS(app)
+CORS(app, resources={r"/*": {"methods": ["GET", "POST", "PUT", "DELETE"]}})
 
 load_dotenv()
 
@@ -51,6 +51,10 @@ except RedisConnectionError:
 @app.route('/')
 def run_test():
     return 'live'
+
+@app.route('/be')
+def run_test():
+    return 'be-live'
 
 # # Updated function get_user_profile()
 # def get_user_profile(username):
