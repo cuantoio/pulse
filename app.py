@@ -301,6 +301,13 @@ def efficient_frontier():
         'min_vol_index': int(min_vol_index),
     })
 
+def save_prompt_to_s3(prompt):
+    s3.put_object(
+        Bucket=BUCKET_NAME,
+        Key='prompts/{}.json'.format(prompt['timestamp']),
+        Body=json.dumps(prompt)
+    )
+
 @app.route('/api/combined_summary', methods=['POST'])
 def api_combined_summary():
     data = request.json
@@ -321,6 +328,9 @@ def api_combined_summary():
     }
     
     print('User Prompt:', user_prompt)
+    
+    # Save the user prompt to S3
+    save_prompt_to_s3(user_prompt)
     
     if query:
         if 'price' in query or 'prices' in query:
@@ -355,7 +365,7 @@ def api_combined_summary():
     else:  # If the user query is empty, ask for more details.
         combined_summary = "Could you give us more specifics on what you're intending to accomplish?" 
         return jsonify({'combined_summary': combined_summary, 'username': username})
-        
+
 if __name__ == "__main__":
-    # app.run(port=5000)
-    app.run(host="0.0.0.0", port=8080)
+    app.run(port=5000)
+    # app.run(host="0.0.0.0", port=8080)
