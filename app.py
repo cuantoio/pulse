@@ -40,7 +40,7 @@ CHAT_HISTORY_PREFIX = 'chat_history/'
 
 # Initialize DynamoDB client
 dynamodb = boto3.resource('dynamodb', region_name='us-west-2')
-table = dynamodb.Table(os.getenv("DYNAMODB_TABLE_NAME"))
+table = dynamodb.Table(os.getenv("DYNAMODB_TABLE_INPUT_PROMPTS"))
 
 # Updated Redis setup
 try:
@@ -54,7 +54,7 @@ def run_test():
 
 @app.route('/eb')
 def run_eb():
-    return 'eb-live'
+    return 'eb-live-v0.02'
 
 # Updated function get_user_profile()
 def get_user_profile(username):
@@ -249,8 +249,14 @@ def efficient_frontier():
     allocations = [v["allocation"] for v in loaded_user_portfolio.values()]
 
     stock_data_key = tuple(sorted(tickers))
+
+    # Use today's date as the end date and one year ago as the start date
+    today = date.today()
+    start_date = today - timedelta(days=365)
+    end_date = today
+
     if stock_data_key not in stock_data_cache:
-        stock_data_cache[stock_data_key] = yf.download(tickers, start='2022-06-01', end='2023-06-01')['Adj Close']
+        stock_data_cache[stock_data_key] = yf.download(tickers, start=start_date, end=end_date)['Adj Close']
 
     stock_data = stock_data_cache[stock_data_key]
     daily_returns = stock_data.pct_change()
@@ -298,39 +304,58 @@ def efficient_frontier():
 # Updated api_combined_summary()
 @app.route('/api/combined_summary', methods=['POST'])
 def api_combined_summary():
-    print("request:: ",request)
-    data = request.get_json()
-    query = data.get('query')
-    num_results = data.get('num_results', 10)
-    username = data.get('username', 'tsm')
-
+    request_data = request.json
+    user_query = request_data.get('query')
+    num_results = int(request_data.get('num_results'))
+    username = request_data.get('username')
+    
+    current_timestamp = datetime.now().isoformat()
+    data_to_save = {
+        'timestamp': current_timestamp,
+        'query': user_query,
+        'num_results': num_results,
+        'username': username,
+    }
+    put_response = table.put_item(Item=data_to_save)
+    print('Database Response:', put_response)
+    
     try:
         user_profile = load_user_profile_from_dynamodb(username)
-    except NoCredentialsError or PartialCredentialsError:
-        return jsonify({'error': 'Unable to load user profile'}), 500
-        
+    except (NoCredentialsError, PartialCredentialsError):
+        return jsonify({'error': 'Failed to load user profile'}), 500
+
+    # Check if the user query contains '$', and if so, split on '$' and get the second part. 
+    query_tickers = user_query.split('$')[1].split() if '$' in user_query else []
+    query_tickers = [ticker.upper() for ticker in query_tickers]
+
+    print("query_tickers::", query_tickers)
+
     user_prompt = {
         'timestamp': time.time(),
         'sender': username,
-        'message': query
+        'message': user_query
     }
     
-    print('cs_user_prompt::',user_prompt)
-    print('cs_user_profile::',user_profile)
+    print('User Prompt:', user_prompt)
+    print('User Profile:', user_profile)
+    
+    if user_query:
 
-    if query != "":
-        gpt_prompt = f"Remember to respond in a tone similar to the input prompt in 250 characters or less. You can provide more details on request: {user_profile}'{query}'\n\n"
-
-        # portfolio = '\n'.join([f"{ticker}: {details['allocation']}%" for ticker, details in user_profile.items()])
-
-        # gpt_prompt += f"\n Portfolio {portfolio}\n"
+        if 'price' in user_query or 'prices' in user_query:
+            print('price request')
+        
+        gpt_prompt = f"{user_query}." #Ensure the response reflects assurance and trust. 
 
         response = openai.ChatCompletion.create(
             model="gpt-3.5-turbo",
             messages=[
                 {
                     "role": "system",
-                    "content": "You are an AI portfolio manager. You are equipped with profit growth algos that maximize returns while minimizing risk. respond in this I have these tickers $ NVDA MSFT now add these $ AMZN the response would include at the end $ NVDA MSFT AMZN",
+                    "content": "As an AI investor I provide consice, confident and trustworthy responses.",
+                    "role": "user",
+                    "content": "can you build me a tech portfolio?",
+                    "role": "system",
+                    "content": "of course, here's a good starting point. these are some of the top tech companies to start with $ NVDA AAPL META MSFT AMZN"
                 },
                 {"role": "user", "content": gpt_prompt},
             ],
@@ -338,11 +363,11 @@ def api_combined_summary():
 
         gpt_response = response.choices[0].message['content'].strip()
         return jsonify({'combined_summary': gpt_response, 'user_profile': user_profile})
-
-    else:  # Query is empty, use Google Search instead.
-        combined_summary = "Can you provide more details on what you're looking to do?" #get_combined_summary(query, num_results)
+    else:  # If the user query is empty, ask for more details.
+        combined_summary = "Could you give us more specifics on what you're intending to accomplish?" 
         return jsonify({'combined_summary': combined_summary, 'user_profile': user_profile})
-    
+
+
 if __name__ == "__main__":
     # app.run(port=5000)
     app.run(host="0.0.0.0", port=8080)
