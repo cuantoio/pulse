@@ -318,10 +318,10 @@ def api_combined_summary():
     num_results = data.get('num_results', 10)
     username = data.get('username', 'tsm')
 
-    try:
-        user_profile = load_user_profile_from_dynamodb(username)
-    except NoCredentialsError or PartialCredentialsError:
-        return jsonify({'error': 'Unable to load user profile'}), 500
+    # try:
+    #     user_profile = load_user_profile_from_dynamodb(username)
+    # except NoCredentialsError or PartialCredentialsError:
+    #     return jsonify({'error': 'Unable to load user profile'}), 500
         
     # Check if the user query contains '$', and if so, split on '$' and get the second part. 
     query_tickers = user_query.split('$')[1].split() if '$' in user_query else []
