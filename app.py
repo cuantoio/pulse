@@ -54,7 +54,7 @@ def run_test():
 
 @app.route('/eb')
 def run_eb():
-    return 'eb-live-v0.02'
+    return 'eb-live-v0.01'
 
 # Updated function get_user_profile()
 def get_user_profile(username):
@@ -304,26 +304,25 @@ def efficient_frontier():
 # Updated api_combined_summary()
 @app.route('/api/combined_summary', methods=['POST'])
 def api_combined_summary():
-    request_data = request.json
-    user_query = request_data.get('query')
-    num_results = int(request_data.get('num_results'))
-    username = request_data.get('username')
-    
-    current_timestamp = datetime.now().isoformat()
-    data_to_save = {
-        'timestamp': current_timestamp,
-        'query': user_query,
-        'num_results': num_results,
-        'username': username,
+    data = request.json
+    data = {
+        'timestamp': datetime.now().isoformat(),
+        'query': data['query'],
+        'num_results': int(data['num_results']),
+        'username': data['username'],
     }
-    put_response = table.put_item(Item=data_to_save)
-    print('Database Response:', put_response)
-    
+    put_response = table.put_item(Item=data)
+    print('put_response::', put_response)
+
+    query = data.get('query')
+    num_results = data.get('num_results', 10)
+    username = data.get('username', 'tsm')
+
     try:
         user_profile = load_user_profile_from_dynamodb(username)
-    except (NoCredentialsError, PartialCredentialsError):
-        return jsonify({'error': 'Failed to load user profile'}), 500
-
+    except NoCredentialsError or PartialCredentialsError:
+        return jsonify({'error': 'Unable to load user profile'}), 500
+        
     # Check if the user query contains '$', and if so, split on '$' and get the second part. 
     query_tickers = user_query.split('$')[1].split() if '$' in user_query else []
     query_tickers = [ticker.upper() for ticker in query_tickers]
@@ -366,8 +365,7 @@ def api_combined_summary():
     else:  # If the user query is empty, ask for more details.
         combined_summary = "Could you give us more specifics on what you're intending to accomplish?" 
         return jsonify({'combined_summary': combined_summary, 'user_profile': user_profile})
-
-
+    
 if __name__ == "__main__":
     # app.run(port=5000)
     app.run(host="0.0.0.0", port=8080)
