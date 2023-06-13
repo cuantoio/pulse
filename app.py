@@ -54,7 +54,7 @@ def run_test():
 
 @app.route('/eb')
 def run_eb():
-    return 'eb-live-v0.01'
+    return 'eb-live v1.01'
 
 # Updated function get_user_profile()
 def get_user_profile(username):
@@ -301,30 +301,15 @@ def efficient_frontier():
         'min_vol_index': int(min_vol_index),
     })
 
-# Updated api_combined_summary()
 @app.route('/api/combined_summary', methods=['POST'])
 def api_combined_summary():
     data = request.json
-    data = {
-        'timestamp': datetime.now().isoformat(),
-        'query': data['query'],
-        'num_results': int(data['num_results']),
-        'username': data['username'],
-    }
-    put_response = table.put_item(Item=data)
-    print('put_response::', put_response)
-
     query = data.get('query')
     num_results = data.get('num_results', 10)
     username = data.get('username', 'tsm')
 
-    # try:
-    #     user_profile = load_user_profile_from_dynamodb(username)
-    # except NoCredentialsError or PartialCredentialsError:
-    #     return jsonify({'error': 'Unable to load user profile'}), 500
-        
     # Check if the user query contains '$', and if so, split on '$' and get the second part. 
-    query_tickers = user_query.split('$')[1].split() if '$' in user_query else []
+    query_tickers = query.split('$')[1].split() if '$' in query else []
     query_tickers = [ticker.upper() for ticker in query_tickers]
 
     print("query_tickers::", query_tickers)
@@ -332,40 +317,45 @@ def api_combined_summary():
     user_prompt = {
         'timestamp': time.time(),
         'sender': username,
-        'message': user_query
+        'message': query
     }
     
     print('User Prompt:', user_prompt)
-    print('User Profile:', user_profile)
     
-    if user_query:
-
-        if 'price' in user_query or 'prices' in user_query:
+    if query:
+        if 'price' in query or 'prices' in query:
             print('price request')
         
-        gpt_prompt = f"{user_query}." #Ensure the response reflects assurance and trust. 
+        gpt_prompt = f"{query}." 
 
         response = openai.ChatCompletion.create(
             model="gpt-3.5-turbo",
             messages=[
                 {
                     "role": "system",
-                    "content": "As an AI investor I provide consice, confident and trustworthy responses.",
+                    "content": "As an AI investor I provide concise, confident, and trustworthy responses.",
+                },
+                {
                     "role": "user",
                     "content": "can you build me a tech portfolio?",
-                    "role": "system",
-                    "content": "of course, here's a good starting point. these are some of the top tech companies to start with $ NVDA AAPL META MSFT AMZN"
                 },
-                {"role": "user", "content": gpt_prompt},
+                {
+                    "role": "system",
+                    "content": "Of course, here's a good starting point. These are some of the top tech companies to start with $ NVDA AAPL META MSFT AMZN",
+                },
+                {
+                    "role": "user", 
+                    "content": gpt_prompt
+                },
             ],
         )
 
         gpt_response = response.choices[0].message['content'].strip()
-        return jsonify({'combined_summary': gpt_response, 'user_profile': user_profile})
+        return jsonify({'combined_summary': gpt_response, 'username': username})
     else:  # If the user query is empty, ask for more details.
         combined_summary = "Could you give us more specifics on what you're intending to accomplish?" 
-        return jsonify({'combined_summary': combined_summary, 'user_profile': user_profile})
-    
+        return jsonify({'combined_summary': combined_summary, 'username': username})
+        
 if __name__ == "__main__":
     # app.run(port=5000)
     app.run(host="0.0.0.0", port=8080)
