@@ -54,7 +54,7 @@ def run_test():
 
 @app.route('/eb')
 def run_eb():
-    return 'eb-live v1.01'
+    return 'eb-live v1.02'
 
 # Updated function get_user_profile()
 def get_user_profile(username):
