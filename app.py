@@ -39,8 +39,8 @@ BUCKET_NAME = os.getenv("BUCKET_NAME")
 CHAT_HISTORY_PREFIX = 'chat_history/'
 
 # Initialize DynamoDB client
-dynamodb = boto3.resource('dynamodb', region_name='us-west-2')
-table = dynamodb.Table(os.getenv("DYNAMODB_TABLE_INPUT_PROMPTS"))
+# dynamodb = boto3.resource('dynamodb', region_name='us-west-2')
+# table = dynamodb.Table(os.getenv("DYNAMODB_TABLE_INPUT_PROMPTS"))
 
 # Updated Redis setup
 try:
@@ -84,9 +84,9 @@ def update_user_profile(user_profile):
     """
     This function updates a user's profile in the DynamoDB database.
     """
-    table.put_item(
-        Item=user_profile
-    )
+    # table.put_item(
+    #     Item=user_profile
+    # )
 
 @app.route('/api/userPortfolio/<username>', methods=['GET'])
 def api_user_portfolio(username):
@@ -116,7 +116,7 @@ def api_feedback():
             'username': data.get('username')
         }
 
-        table.put_item(Item=feedback_data)
+        # table.put_item(Item=feedback_data)
         print('success', feedback_data)
         return jsonify({'status': 'success'})
     else:
@@ -188,42 +188,42 @@ def simulate_portfolios_parallel(num_portfolios, mean_returns, cov_matrix, risk_
 
 PROFILE_PREFIX = 'user_profile/'
 
-def save_user_portfolio_to_dynamodb(portfolio, temp_portfolio, username):
-    """
-    Save a user's portfolio and temporary portfolio to a DynamoDB table.
-    """
+# def save_user_portfolio_to_dynamodb(portfolio, temp_portfolio, username):
+#     """
+#     Save a user's portfolio and temporary portfolio to a DynamoDB table.
+#     """
 
-    print("portfolio + username::", portfolio, username)
+#     print("portfolio + username::", portfolio, username)
 
-    table.put_item(
-        Item={
-            'username': username,
-            'portfolio': json.dumps(portfolio),
-            'temp_portfolio': json.dumps(temp_portfolio)
-        }
-    )
+#     table.put_item(
+#         Item={
+#             'username': username,
+#             'portfolio': json.dumps(portfolio),
+#             'temp_portfolio': json.dumps(temp_portfolio)
+#         }
+#     )
 
-def load_user_profile_from_dynamodb(username):
-    """
-    Load a user's portfolio from DynamoDB. 
-    If the user has a saved portfolio, load it as the temporary portfolio.
-    """
-    try:
-        response = table.get_item(Key={'username': username})
-    except ClientError as e:
-        print(e.response['Error']['Message'])
-    else:
-        item = response.get('Item')
-        if item == None:
-            return None
+# def load_user_profile_from_dynamodb(username):
+#     """
+#     Load a user's portfolio from DynamoDB. 
+#     If the user has a saved portfolio, load it as the temporary portfolio.
+#     """
+#     try:
+#         response = table.get_item(Key={'username': username})
+#     except ClientError as e:
+#         print(e.response['Error']['Message'])
+#     else:
+#         item = response.get('Item')
+#         if item == None:
+#             return None
 
-        portfolio = json.loads(item.get('portfolio', '{}'))
-        temp_portfolio = json.loads(item.get('temp_portfolio', '{}'))
+#         portfolio = json.loads(item.get('portfolio', '{}'))
+#         temp_portfolio = json.loads(item.get('temp_portfolio', '{}'))
 
-        return {
-            'portfolio': portfolio,
-            'temp_portfolio': temp_portfolio or portfolio  # Use the saved portfolio as the default temp portfolio
-        }
+#         return {
+#             'portfolio': portfolio,
+#             'temp_portfolio': temp_portfolio or portfolio  # Use the saved portfolio as the default temp portfolio
+#         }
 
 @app.route('/api/efficient_frontier', methods=['POST'])
 def efficient_frontier():
@@ -231,7 +231,7 @@ def efficient_frontier():
     username = data.get('username', 'tsm')
     prompt = data.get('prompt', '').lower()
 
-    user_profile = load_user_profile_from_dynamodb(username)
+    # user_profile = load_user_profile_from_dynamodb(username)
     
     # Parse tickers from the prompt
     prompt_tickers = prompt.split('$')[1].split()    
@@ -288,7 +288,7 @@ def efficient_frontier():
 
     # Parse the prompt for 'save' command 
     if 'save' in prompt:
-        save_user_portfolio_to_dynamodb(portfolio_allocation.to_dict(), username)
+        # save_user_portfolio_to_dynamodb(portfolio_allocation.to_dict(), username)
         return jsonify({'message': 'Portfolio saved successfully'}), 200
 
     return jsonify({
