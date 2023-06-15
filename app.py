@@ -69,7 +69,7 @@ def get_user_profile(username):
 
     user_profile = response.get('Item')
     
-    if user_profile is None:
+    if user_profile == None:
         return None
 
     user_profile_df = pd.DataFrame([user_profile])
@@ -90,12 +90,12 @@ def update_user_profile(user_profile):
 
 @app.route('/api/userPortfolio/<username>', methods=['GET'])
 def api_user_portfolio(username):
-    if username is None or username.lower() == 'undefined':
+    if username == None or username.lower() == 'undefined':
         return jsonify({'message': 'Invalid username supplied'}), 400
 
     user_profile_df = get_user_profile(username)
 
-    if user_profile_df is None:
+    if user_profile_df == None:
         return jsonify({'message': 'User not found'}), 404
 
     user_profile_dict = user_profile_df.to_dict(orient='records')[0]
@@ -214,7 +214,7 @@ def load_user_profile_from_dynamodb(username):
         print(e.response['Error']['Message'])
     else:
         item = response.get('Item')
-        if item is None:
+        if item == None:
             return None
 
         portfolio = json.loads(item.get('portfolio', '{}'))
@@ -242,7 +242,7 @@ def efficient_frontier():
     loaded_user_portfolio = {}
 
     for ticker in prompt_tickers:
-        if user_profile is None or ticker not in user_profile:
+        if user_profile == None or ticker not in user_profile:
             loaded_user_portfolio[ticker] = {"allocation": 0}  # default allocation
 
     tickers = list(loaded_user_portfolio.keys())
