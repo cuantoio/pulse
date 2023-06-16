@@ -231,13 +231,16 @@ def efficient_frontier():
     username = data.get('username', 'tsm')
     prompt = data.get('prompt', '').lower()
 
+    print(f"Data received: {data}")
+
     user_profile = load_user_profile_from_dynamodb(username)
     
     # Parse tickers from the prompt
     prompt_tickers = prompt.split('$')[1].split()    
     prompt_tickers = [ticker.upper() for ticker in prompt_tickers]
 
-    print("prompt_tickers::", prompt_tickers)
+    print(f"Prompt tickers after parsing and conversion: {prompt_tickers}")
+
     # Create an empty dictionary for the loaded user portfolio
     loaded_user_portfolio = {}
 
@@ -245,7 +248,11 @@ def efficient_frontier():
         if user_profile is None or ticker not in user_profile:
             loaded_user_portfolio[ticker] = {"allocation": 0}  # default allocation
 
+    print(f"Loaded user portfolio: {loaded_user_portfolio}")
+
     tickers = list(loaded_user_portfolio.keys())
+    print(f"Final list of tickers: {tickers}")
+
     allocations = [v["allocation"] for v in loaded_user_portfolio.values()]
 
     stock_data_key = tuple(sorted(tickers))
@@ -274,8 +281,8 @@ def efficient_frontier():
     max_sharpe_index = results[2, :].argmax()
     min_vol_index = results[1, :].argmin()
 
-    print("ef_max_sharpe_allocation:: ", max_sharpe_allocation.to_dict())
-    print("ef_min_volatility_allocation:: ", min_vol_allocation.to_dict())
+    print(f"Max Sharpe Allocation: {max_sharpe_allocation.to_dict()}")
+    print(f"Min Volatility Allocation: {min_vol_allocation.to_dict()}")
 
     user_risk_tolerance = "high"
 
@@ -343,15 +350,7 @@ def api_combined_summary():
             messages=[
                 {
                     "role": "system",
-                    "content": "As an AI investor I provide concise (under 250 characters), confident, and trustworthy responses.",
-                },
-                {
-                    "role": "user",
-                    "content": "can you build me a tech portfolio?",
-                },
-                {
-                    "role": "system",
-                    "content": "Of course, here's a good starting point. These are some of the top tech companies to start with $ NVDA AAPL META MSFT AMZN",
+                    "content": "As an AI wealth management tool, I can help with recommendations to diversify better, optimize for risk, returns and more.",
                 },
                 {
                     "role": "user", 
