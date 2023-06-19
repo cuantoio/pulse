@@ -50,11 +50,12 @@ except RedisConnectionError:
 
 @app.route('/')
 def run_test():
+    print("get user")
     return 'live'
 
 @app.route('/eb')
 def run_eb():
-    return 'eb-live v1.02'
+    return 'eb-live v1.03'
 
 # Updated function get_user_profile()
 def get_user_profile(username):
@@ -62,8 +63,8 @@ def get_user_profile(username):
         response = table.get_item(
             Key={
                 'UserID': username
-            }
-        )
+            }        
+        )        
     except NoCredentialsError or PartialCredentialsError:
         return None
 
@@ -87,6 +88,7 @@ def update_user_profile(user_profile):
     table.put_item(
         Item=user_profile
     )
+    print("update called")
 
 @app.route('/api/userPortfolio/<username>', methods=['GET'])
 def api_user_portfolio(username):
@@ -117,7 +119,7 @@ def api_feedback():
         }
 
         table.put_item(Item=feedback_data)
-        print('success', feedback_data)
+        
         return jsonify({'status': 'success'})
     else:
         return jsonify({'error': 'Invalid input'}), 400
@@ -210,6 +212,7 @@ def load_user_profile_from_dynamodb(username):
     """
     try:
         response = table.get_item(Key={'username': username})
+        print("load user")
     except ClientError as e:
         print(e.response['Error']['Message'])
     else:

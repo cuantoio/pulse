@@ -15,7 +15,7 @@ docker push 260939427961.dkr.ecr.us-west-2.amazonaws.com/pulse-backend:latest
 # Git operations
 git init
 git add .
-git commit -m "new push"
+git commit -m "New deployment"
 git push -u origin master
 
 # AWS EB operations
