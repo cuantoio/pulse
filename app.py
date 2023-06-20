@@ -266,7 +266,10 @@ def efficient_frontier():
     end_date = today
 
     if stock_data_key not in stock_data_cache:
-        stock_data_cache[stock_data_key] = yf.download(tickers, start=start_date, end=end_date)['Adj Close']
+        try:
+            stock_data_cache[stock_data_key] = yf.download(tickers, start=start_date, end=end_date)['Adj Close']
+        except:
+            print(stock_data_key, "failed")
 
     stock_data = stock_data_cache[stock_data_key]
     daily_returns = stock_data.pct_change()
