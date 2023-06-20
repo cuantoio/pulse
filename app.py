@@ -55,7 +55,7 @@ def run_test():
 
 @app.route('/eb')
 def run_eb():
-    return 'eb-live v1.03b'
+    return 'eb-live v1.03c'
 
 # Updated function get_user_profile()
 def get_user_profile(username):
@@ -348,7 +348,7 @@ def api_combined_summary():
     print('User Prompt:', user_prompt)
     
     # Save the user prompt to S3
-    save_prompt(user_prompt)
+    # save_prompt(user_prompt)
     
     if query:
         if 'price' in query or 'prices' in query:
