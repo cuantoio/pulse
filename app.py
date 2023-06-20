@@ -239,7 +239,11 @@ def efficient_frontier():
     user_profile = load_user_profile_from_dynamodb(username)
     
     # Parse tickers from the prompt
-    prompt_tickers = prompt.split('$')[1].split()    
+    try:
+        prompt_tickers = prompt.split('$')[1].split()    
+    except IndexError:
+        return jsonify({'message': 'No $ found in prompt, unable to parse tickers'}), 400
+
     prompt_tickers = [ticker.upper() for ticker in prompt_tickers]
 
     print(f"Prompt tickers after parsing and conversion: {prompt_tickers}")
