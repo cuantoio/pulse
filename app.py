@@ -27,7 +27,7 @@ CORS(app)
 
 load_dotenv()
 
-openai.organization = os.getenv("OPENAI_API_ORG")
+openai.organization = "org-bHNvimGOVpNGPOLseRrHQTB4"
 openai.api_key = os.getenv("OPENAI_API_KEY")
 
 # MEMORY_SIZE = 10
