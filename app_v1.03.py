@@ -55,7 +55,7 @@ def run_test():
 
 @app.route('/eb')
 def run_eb():
-    return 'eb-live v1.03b'
+    return 'eb-live v1.03'
 
 # Updated function get_user_profile()
 def get_user_profile(username):
@@ -311,13 +311,11 @@ def efficient_frontier():
         'min_vol_index': int(min_vol_index),
     })
 
-def save_prompt(prompt):
-    table.put_item(
-        Item={
-            'username': prompt['username'],
-            'timestamp': prompt['timestamp'],
-            'query': prompt['query']
-        }
+def save_prompt_to_s3(prompt):
+    s3.put_object(
+        Bucket=BUCKET_NAME,
+        Key='prompts/{}.json'.format(prompt['timestamp']),
+        Body=json.dumps(prompt)
     )
 
 @app.route('/api/combined_summary', methods=['POST'])
@@ -328,23 +326,21 @@ def api_combined_summary():
     username = data.get('username', 'tsm')
 
     # Check if the user query contains '$', and if so, split on '$' and get the second part. 
-    query_tickers = query.split('$')[1].split() if query and '$' in query else []
+    query_tickers = query.split('$')[1].split() if '$' in query else []
     query_tickers = [ticker.upper() for ticker in query_tickers]
 
     print("query_tickers::", query_tickers)
 
-    timestamp = str(time.time())
-
     user_prompt = {
-        'username': username,
-        'timestamp': timestamp,
-        'query': query
+        'timestamp': time.time(),
+        'sender': username,
+        'message': query
     }
     
     print('User Prompt:', user_prompt)
     
     # Save the user prompt to S3
-    save_prompt(user_prompt)
+    save_prompt_to_s3(user_prompt)
     
     if query:
         if 'price' in query or 'prices' in query:
