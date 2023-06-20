@@ -55,7 +55,7 @@ def run_test():
 
 @app.route('/eb')
 def run_eb():
-    return 'eb-live v1.04'
+    return 'eb-live v1.03c'
 
 # Updated function get_user_profile()
 def get_user_profile(username):
@@ -232,14 +232,18 @@ def load_user_profile_from_dynamodb(username):
 def efficient_frontier():
     data = request.json
     username = data.get('username', 'tsm')
-    prompt = data.get('query', '').lower()
+    prompt = data.get('prompt', '').lower()
 
     print(f"Data received: {data}")
 
     user_profile = load_user_profile_from_dynamodb(username)
     
     # Parse tickers from the prompt
-    prompt_tickers = prompt.split('$')[1].split()    
+    try:
+        prompt_tickers = prompt.split('$')[1].split()    
+    except IndexError:
+        return jsonify({'message': 'No $ found in prompt, unable to parse tickers'}), 400
+
     prompt_tickers = [ticker.upper() for ticker in prompt_tickers]
 
     print(f"Prompt tickers after parsing and conversion: {prompt_tickers}")
@@ -327,16 +331,9 @@ def api_combined_summary():
     num_results = data.get('num_results', 10)
     username = data.get('username', 'tsm')
 
-    # Parse tickers from the prompt
-    if '$' in query:
-        query_tickers = query.split('$')[1].split()
-        query_tickers = [ticker.upper() for ticker in query_tickers]
-    else:
-        query_tickers = []
-        print("Query doesn't contain any ticker symbols.")
-
-
-    print(f"Prompt tickers after parsing and conversion: {query_tickers}")
+    # Check if the user query contains '$', and if so, split on '$' and get the second part. 
+    query_tickers = query.split('$')[1].split() if query and '$' in query else []
+    query_tickers = [ticker.upper() for ticker in query_tickers]
 
     print("query_tickers::", query_tickers)
 
@@ -364,7 +361,7 @@ def api_combined_summary():
             messages=[
                 {
                     "role": "system",
-                    "content": "using 250 characters or less: As an Investing AI, I can assist with portfolio optimization, personalized financial planning, and real-time market analysis.",
+                    "content": "As an AI wealth management tool, I can help with recommendations to diversify better, optimize for risk, returns and more.",
                 },
                 {
                     "role": "user", 
@@ -374,7 +371,6 @@ def api_combined_summary():
         )
 
         gpt_response = response.choices[0].message['content'].strip()
-        print("gpt_response::", gpt_response)
         return jsonify({'combined_summary': gpt_response, 'username': username})
     else:  # If the user query is empty, ask for more details.
         combined_summary = "Could you give us more specifics on what you're intending to accomplish?" 
