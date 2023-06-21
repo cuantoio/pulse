@@ -41,6 +41,7 @@ CHAT_HISTORY_PREFIX = 'chat_history/'
 # Initialize DynamoDB client
 dynamodb = boto3.resource('dynamodb', region_name='us-west-2')
 table = dynamodb.Table(os.getenv("DYNAMODB_TABLE_INPUT_PROMPTS"))
+table_portfolio = dynamodb.Table(os.getenv("DYNAMODB_TABLE_PORTFOLIO"))
 
 # Updated Redis setup
 try:
@@ -190,28 +191,27 @@ def simulate_portfolios_parallel(num_portfolios, mean_returns, cov_matrix, risk_
 
 PROFILE_PREFIX = 'user_profile/'
 
-def save_user_portfolio_to_dynamodb(portfolio, temp_portfolio, username):
+def save_user_portfolio_to_dynamodb(portfolio, username):
     """
     Save a user's portfolio and temporary portfolio to a DynamoDB table.
     """
 
     print("portfolio + username::", portfolio, username)
 
-    table.put_item(
+    table_portfolio.put_item(
         Item={
             'username': username,
-            'portfolio': json.dumps(portfolio),
-            'temp_portfolio': json.dumps(temp_portfolio)
+            'portfolio': json.dumps(portfolio),            
         }
     )
 
-def load_user_profile_from_dynamodb(username):
+def load_user_portfolio_from_dynamodb(username):
     """
     Load a user's portfolio from DynamoDB. 
     If the user has a saved portfolio, load it as the temporary portfolio.
     """
     try:
-        response = table.get_item(Key={'username': username})
+        response = table_portfolio.get_item(Key={'username': username})
         print("load user")
     except ClientError as e:
         print(e.response['Error']['Message'])
@@ -224,8 +224,8 @@ def load_user_profile_from_dynamodb(username):
         temp_portfolio = json.loads(item.get('temp_portfolio', '{}'))
 
         return {
+            'username': username,
             'portfolio': portfolio,
-            'temp_portfolio': temp_portfolio or portfolio  # Use the saved portfolio as the default temp portfolio
         }
 
 @app.route('/api/efficient_frontier', methods=['POST'])
@@ -236,8 +236,9 @@ def efficient_frontier():
 
     print(f"Data received: {data}")
 
-    user_profile = load_user_profile_from_dynamodb(username)
-    
+    user_profile = load_user_portfolio_from_dynamodb(username)
+    print("user_profile::",user_profile)
+
     # Parse tickers from the prompt
     prompt_tickers = prompt.split('$')[1].split()    
     prompt_tickers = [ticker.upper() for ticker in prompt_tickers]
@@ -300,9 +301,11 @@ def efficient_frontier():
         portfolio_allocation = min_vol_allocation
 
     # Parse the prompt for 'save' command 
-    if 'save' in prompt:
-        save_user_portfolio_to_dynamodb(portfolio_allocation.to_dict(), username)
-        return jsonify({'message': 'Portfolio saved successfully'}), 200
+    save_user_portfolio_to_dynamodb(portfolio_allocation.to_dict(), username)
+
+    # if 'save' in prompt:
+    #     save_user_portfolio_to_dynamodb(portfolio_allocation.to_dict(), username)
+    #     return jsonify({'message': 'Portfolio saved successfully'}), 200
 
     return jsonify({
         'tickers': tickers,
@@ -330,6 +333,9 @@ def api_combined_summary():
     num_results = data.get('num_results', 10)
     username = data.get('username', 'tsm')
 
+    user_portfolio = load_user_portfolio_from_dynamodb(username)
+    print("user_portfolio in combined_summary::",user_portfolio)
+
     # Parse tickers from the prompt
     if '$' in query:
         query_tickers = query.split('$')[1].split()
@@ -342,25 +348,12 @@ def api_combined_summary():
     print(f"Prompt tickers after parsing and conversion: {query_tickers}")
 
     print("query_tickers::", query_tickers)
-
-    timestamp = str(time.time())
-
-    user_prompt = {
-        'username': username,
-        'timestamp': timestamp,
-        'query': query
-    }
-    
-    print('User Prompt:', user_prompt)
-    
-    # Save the user prompt to S3
-    # save_prompt(user_prompt)
     
     if query:
         if 'price' in query or 'prices' in query:
             print('price request')
-        
-        gpt_prompt = f"{query}." 
+            
+        gpt_prompt = f"{query}. current portfolio (if needed): {user_portfolio}" 
 
         response = openai.ChatCompletion.create(
             model="gpt-3.5-turbo",
