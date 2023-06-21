@@ -56,7 +56,7 @@ def run_test():
 
 @app.route('/eb')
 def run_eb():
-    return 'eb-live v1.04'
+    return 'eb-live v1.04a'
 
 # Updated function get_user_profile()
 def get_user_profile(username):
@@ -201,7 +201,7 @@ def save_user_portfolio_to_dynamodb(portfolio, username):
     table_portfolio.put_item(
         Item={
             'username': username,
-            'portfolio': json.dumps(portfolio),            
+            'portfolio': json.dumps(portfolio),
         }
     )
 
@@ -301,11 +301,11 @@ def efficient_frontier():
         portfolio_allocation = min_vol_allocation
 
     # Parse the prompt for 'save' command 
-    save_user_portfolio_to_dynamodb(portfolio_allocation.to_dict(), username)
+    # save_user_portfolio_to_dynamodb(portfolio_allocation.to_dict(), username)
 
-    # if 'save' in prompt:
-    #     save_user_portfolio_to_dynamodb(portfolio_allocation.to_dict(), username)
-    #     return jsonify({'message': 'Portfolio saved successfully'}), 200
+    if 'save' in prompt:
+        save_user_portfolio_to_dynamodb(portfolio_allocation.to_dict(), username)
+        # return jsonify({'message': 'Portfolio saved successfully'}), 200
 
     return jsonify({
         'tickers': tickers,
@@ -344,7 +344,6 @@ def api_combined_summary():
         query_tickers = []
         print("Query doesn't contain any ticker symbols.")
 
-
     print(f"Prompt tickers after parsing and conversion: {query_tickers}")
 
     print("query_tickers::", query_tickers)
@@ -352,15 +351,15 @@ def api_combined_summary():
     if query:
         if 'price' in query or 'prices' in query:
             print('price request')
-            
-        gpt_prompt = f"{query}. current portfolio (if needed): {user_portfolio}" 
+
+        gpt_prompt = f"Please provide a summary for the following query in a conversational tone: {query}. If the query involves analyzing the optimized portfolio, the current portfolio is: {user_portfolio}" 
 
         response = openai.ChatCompletion.create(
             model="gpt-3.5-turbo",
             messages=[
                 {
                     "role": "system",
-                    "content": "using 250 characters or less: As an Investing AI, I can assist with portfolio optimization, personalized financial planning, and real-time market analysis.",
+                    "content": "You are an Investing AI that communicates in short, friendly and conversational manner. You provide portfolio updates in a format that anyone can understand, not in JSON format. Unless the user's query involves analyzing the optimized portfolio, please refrain from providing specific asset allocation breakdowns. Please assist the user with their query about portfolio optimization, personalized financial planning, and real-time market analysis.",
                 },
                 {
                     "role": "user", 
@@ -370,6 +369,7 @@ def api_combined_summary():
         )
 
         gpt_response = response.choices[0].message['content'].strip()
+        
         print("gpt_response::", gpt_response)
         return jsonify({'combined_summary': gpt_response, 'username': username})
     else:  # If the user query is empty, ask for more details.
