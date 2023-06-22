@@ -56,7 +56,7 @@ def run_test():
 
 @app.route('/eb')
 def run_eb():
-    return 'eb-live v1.04a'
+    return 'eb-live v1.04'
 
 # Updated function get_user_profile()
 def get_user_profile(username):
@@ -96,13 +96,14 @@ def api_user_portfolio(username):
     if username is None or username.lower() == 'undefined':
         return jsonify({'message': 'Invalid username supplied'}), 400
 
-    user_profile_df = get_user_profile(username)
+    # user_profile_df = get_user_profile(username)
+    user_portfolio = load_user_portfolio_from_dynamodb(username)
 
-    if user_profile_df is None:
+    if user_portfolio is None:
         return jsonify({'message': 'User not found'}), 404
 
-    user_profile_dict = user_profile_df.to_dict(orient='records')[0]
-    return jsonify(user_profile_dict), 200
+    user_portfolio_dict = user_portfolio.to_dict(orient='records')[0]
+    return jsonify(user_portfolio_dict), 200
 
 @app.route('/api/feedback', methods=['POST'])
 def api_feedback():
@@ -291,14 +292,17 @@ def efficient_frontier():
     print(f"Max Sharpe Allocation: {max_sharpe_allocation.to_dict()}")
     print(f"Min Volatility Allocation: {min_vol_allocation.to_dict()}")
 
-    user_risk_tolerance = "high"
+    if ("low" in prompt or "medium" in prompt) and "risk" in prompt:
+        print("low risk")
+        user_risk_tolerance = "low"
+    else:
+        print("high risk")
+        user_risk_tolerance = "high"
 
-    if user_risk_tolerance == "high":
-        portfolio_allocation = max_sharpe_allocation
-    elif user_risk_tolerance == "low" or user_risk_tolerance == "medium": 
+    if user_risk_tolerance == "low" or user_risk_tolerance == "medium": 
         portfolio_allocation = min_vol_allocation
     else: 
-        portfolio_allocation = min_vol_allocation
+        portfolio_allocation = max_sharpe_allocation
 
     # Parse the prompt for 'save' command 
     # save_user_portfolio_to_dynamodb(portfolio_allocation.to_dict(), username)
