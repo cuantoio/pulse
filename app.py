@@ -43,6 +43,7 @@ dynamodb = boto3.resource('dynamodb', region_name='us-west-2')
 table = dynamodb.Table(os.getenv("DYNAMODB_TABLE_INPUT_PROMPTS"))
 table_portfolio = dynamodb.Table(os.getenv("DYNAMODB_TABLE_PORTFOLIO"))
 table_user_profiles = dynamodb.Table(os.getenv("DYNAMODB_TABLE_USER_PROFILE"))
+table_chat_history = dynamodb.Table(os.getenv("DYNAMODB_TABLE_CHAT_HISTORY"))
 
 # Updated Redis setup
 try:
@@ -57,35 +58,7 @@ def run_test():
 
 @app.route('/eb')
 def run_eb():
-    return 'eb-live v1.05a'
-
-@app.route('/api/users', methods=['POST'])
-def create_user():
-    try:
-        data = request.get_json()
-
-        # Construct the item to put in the table
-        item = {
-            'id': data['id'],
-            'name': data['name'],
-            # 'email': data['email'],
-            # 'bio': data['bio'],
-            'avatar': data['avatar'],
-            'tier': 'free',
-            # 'role': data['role'],
-            # 'timestamp': data['timestamp']
-        }
-
-        # Put the item in the table
-        table_user_profiles.put_item(Item=item)
-
-        # Return a response
-        return jsonify({'message': 'User created successfully'}), 201
-
-    except ClientError as e:
-        return jsonify({'message': e.response['Error']['Message']}), 400
-    except Exception as e:
-        return jsonify({'message': str(e)}), 400
+    return 'eb-live v1.05b'
 
 # Updated function get_user_profile()
 def get_user_profile(username):
@@ -359,6 +332,30 @@ def save_prompt(prompt):
         }
     )
 
+def save_chat_history(username, timestamp, chat):
+    table_chat_history.put_item(
+        Item={
+            'username': username,
+            'timestamp': timestamp,
+            'chat': chat
+        }
+    )
+
+def load_chat_history(username):
+    response = table_chat_history.query(
+        KeyConditionExpression=Key('username').eq(username),
+        ScanIndexForward=False,  # to retrieve items in descending order
+        Limit=7  # limit to last conversation
+    )
+    
+    items = response['Items']
+    
+    if items:
+        # Return the 'chat' dictionary of the last conversation
+        return items[0]['chat']
+
+    return None  # return None if no conversation found
+
 @app.route('/api/combined_summary', methods=['POST'])
 def api_combined_summary():
     data = request.json
@@ -366,26 +363,30 @@ def api_combined_summary():
     num_results = data.get('num_results', 10)
     username = data.get('username', 'tsm')
 
+    # received prompt data
+    timestamp = datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S")
+
     user_portfolio = load_user_portfolio_from_dynamodb(username)
-    print("user_portfolio in combined_summary::",user_portfolio)
 
     # Parse tickers from the prompt
+    query_tickers = []
     if '$' in query:
         query_tickers = query.split('$')[1].split()
         query_tickers = [ticker.upper() for ticker in query_tickers]
-    else:
-        query_tickers = []
-        print("Query doesn't contain any ticker symbols.")
 
-    print(f"Prompt tickers after parsing and conversion: {query_tickers}")
-
-    print("query_tickers::", query_tickers)
-    
     if query:
         if 'price' in query or 'prices' in query:
             print('price request')
 
-        gpt_prompt = f"Please provide a summary for the following query in a conversational tone: {query}. If the query involves analyzing the optimized portfolio, the current portfolio is: {user_portfolio}" 
+        # Load last chat history
+        last_chat = load_chat_history(username)
+        if last_chat:
+            # If a previous chat history exists, add it to the prompt
+            previous_query = last_chat['query']
+            previous_response = last_chat['response']
+            gpt_prompt = f"Last query: {previous_query}\nLast response: {previous_response}\n\nCurrent query: {query}\n\nPlease provide a summary for the following query in a conversational tone: {query}. If the query involves analyzing the optimized portfolio, the current portfolio is: {user_portfolio}"
+        else:
+            gpt_prompt = f"Please provide a summary for the following query in a conversational tone: {query}. If the query involves analyzing the optimized portfolio, the current portfolio is: {user_portfolio}" 
 
         response = openai.ChatCompletion.create(
             model="gpt-3.5-turbo",
@@ -402,9 +403,16 @@ def api_combined_summary():
         )
 
         gpt_response = response.choices[0].message['content'].strip()
-        
-        print("gpt_response::", gpt_response)
+
+        # Save chat history to DynamoDB
+        chat = {
+            "query": query,
+            "response": gpt_response
+        }
+        save_chat_history(username, timestamp, chat)
+
         return jsonify({'combined_summary': gpt_response, 'username': username})
+
     else:  # If the user query is empty, ask for more details.
         combined_summary = "Could you give us more specifics on what you're intending to accomplish?" 
         return jsonify({'combined_summary': combined_summary, 'username': username})
