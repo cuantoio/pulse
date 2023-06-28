@@ -42,6 +42,7 @@ CHAT_HISTORY_PREFIX = 'chat_history/'
 dynamodb = boto3.resource('dynamodb', region_name='us-west-2')
 table = dynamodb.Table(os.getenv("DYNAMODB_TABLE_INPUT_PROMPTS"))
 table_portfolio = dynamodb.Table(os.getenv("DYNAMODB_TABLE_PORTFOLIO"))
+table_user_profiles = dynamodb.Table(os.getenv("DYNAMODB_TABLE_USER_PROFILE"))
 
 # Updated Redis setup
 try:
@@ -56,7 +57,35 @@ def run_test():
 
 @app.route('/eb')
 def run_eb():
-    return 'eb-live v1.04b'
+    return 'eb-live v1.05'
+
+@app.route('/api/users', methods=['POST'])
+def create_user():
+    try:
+        data = request.get_json()
+
+        # Construct the item to put in the table
+        item = {
+            'id': data['id'],
+            'name': data['name'],
+            # 'email': data['email'],
+            # 'bio': data['bio'],
+            'avatar': data['avatar'],
+            'tier': 'free',
+            # 'role': data['role'],
+            # 'timestamp': data['timestamp']
+        }
+
+        # Put the item in the table
+        table_user_profiles.put_item(Item=item)
+
+        # Return a response
+        return jsonify({'message': 'User created successfully'}), 201
+
+    except ClientError as e:
+        return jsonify({'message': e.response['Error']['Message']}), 400
+    except Exception as e:
+        return jsonify({'message': str(e)}), 400
 
 # Updated function get_user_profile()
 def get_user_profile(username):
