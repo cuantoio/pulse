@@ -57,7 +57,7 @@ def run_test():
 
 @app.route('/eb')
 def run_eb():
-    return 'eb-live v1.05'
+    return 'eb-live v1.05a'
 
 @app.route('/api/users', methods=['POST'])
 def create_user():
