@@ -3,6 +3,7 @@ from datetime import datetime, timedelta, date
 from boto3.dynamodb.conditions import Key
 from joblib import Parallel, delayed
 from dotenv import load_dotenv
+from scipy.stats import norm
 import yfinance as yf
 import boto3
 import time
@@ -58,7 +59,7 @@ def run_test():
 
 @app.route('/eb')
 def run_eb():
-    return 'eb-live v1.05b'
+    return 'eb-live v1.06'
 
 # Updated function get_user_profile()
 def get_user_profile(username):
@@ -156,42 +157,6 @@ def load_chat_history():
 
     return chat_history[:7]
 
-def simulate_single_portfolio(mean_returns, cov_matrix, risk_free_rate):
-    num_assets = len(mean_returns)
-    weights = np.random.random(num_assets)
-    weights /= np.sum(weights)
-    returns = np.dot(weights, mean_returns)
-    volatility = np.sqrt(np.dot(weights.T, np.dot(cov_matrix, weights)))
-    sharpe_ratio = (returns - risk_free_rate) / volatility
-    return returns, volatility, sharpe_ratio, weights
-
-def get_key_allocations(results, weights_record, stock_data):
-    max_sharpe_idx = np.argmax(results[2])
-    sdp, rp = results[1, max_sharpe_idx], results[0, max_sharpe_idx]
-    max_sharpe_allocation = pd.DataFrame(weights_record[max_sharpe_idx], index=stock_data.columns, columns=['allocation'])
-    max_sharpe_allocation.allocation = [round(i * 100, 2) for i in max_sharpe_allocation.allocation]
-    max_sharpe_allocation = max_sharpe_allocation.T
-
-    min_vol_idx = np.argmin(results[1])
-    sdp_min, rp_min = results[1, min_vol_idx], results[0, min_vol_idx]
-    min_vol_allocation = pd.DataFrame(weights_record[min_vol_idx], index=stock_data.columns, columns=['allocation'])
-    min_vol_allocation.allocation = [round(i * 100, 2) for i in min_vol_allocation.allocation]
-    min_vol_allocation = min_vol_allocation.T
-
-    return max_sharpe_allocation, min_vol_allocation
-
-def simulate_portfolios_parallel(num_portfolios, mean_returns, cov_matrix, risk_free_rate):
-    with Parallel(n_jobs=-1, prefer="threads") as parallel:
-        results_and_weights = parallel(
-            delayed(simulate_single_portfolio)(mean_returns, cov_matrix, risk_free_rate)
-            for _ in range(num_portfolios)
-        )
-
-    results = np.array([item[0:3] for item in results_and_weights]).T
-    weights_record = [item[3] for item in results_and_weights]
-
-    return results, weights_record
-
 PROFILE_PREFIX = 'user_profile/'
 
 def save_user_portfolio_to_dynamodb(portfolio, username):
@@ -231,6 +196,133 @@ def load_user_portfolio_from_dynamodb(username):
             'portfolio': portfolio,
         }
 
+# def simulate_single_portfolio(mean_returns, cov_matrix, risk_free_rate):
+#     num_assets = len(mean_returns)
+#     weights = np.random.random(num_assets)
+#     weights /= np.sum(weights)
+#     returns = np.dot(weights, mean_returns)
+#     volatility = np.sqrt(np.dot(weights.T, np.dot(cov_matrix, weights)))
+#     sharpe_ratio = (returns - risk_free_rate) / volatility
+#     return returns, volatility, sharpe_ratio, weights
+
+# def simulate_portfolios_parallel(num_portfolios, mean_returns, cov_matrix, risk_free_rate):
+#     with Parallel(n_jobs=-1, prefer="threads") as parallel:
+#         results_and_weights = parallel(
+#             delayed(simulate_single_portfolio)(mean_returns, cov_matrix, risk_free_rate)
+#             for _ in range(num_portfolios)
+#         )
+
+#     results = np.array([item[0:3] for item in results_and_weights]).T
+#     weights_record = [item[3] for item in results_and_weights]
+
+#     return results, weights_record
+
+# def simulate_single_portfolio(mean_returns, cov_matrix, risk_free_rate):
+#     num_assets = len(mean_returns)
+#     weights = np.random.random(num_assets)
+#     weights /= np.sum(weights)
+#     returns = np.dot(weights, mean_returns)
+#     volatility = np.sqrt(np.dot(weights.T, np.dot(cov_matrix, weights)))
+#     sharpe_ratio = (returns - risk_free_rate) / volatility
+
+#     return returns, volatility, sharpe_ratio, weights
+
+# def get_key_allocations(results, weights_record, stock_data):
+#     max_sharpe_idx = np.argmax(results[2])
+#     sdp, rp = results[1, max_sharpe_idx], results[0, max_sharpe_idx]
+#     max_sharpe_allocation = pd.DataFrame(weights_record[max_sharpe_idx], index=stock_data.columns, columns=['allocation'])
+#     max_sharpe_allocation.allocation = [round(i * 100, 2) for i in max_sharpe_allocation.allocation]
+#     max_sharpe_allocation = max_sharpe_allocation.T
+
+#     min_vol_idx = np.argmin(results[1])
+#     sdp_min, rp_min = results[1, min_vol_idx], results[0, min_vol_idx]
+#     min_vol_allocation = pd.DataFrame(weights_record[min_vol_idx], index=stock_data.columns, columns=['allocation'])
+#     min_vol_allocation.allocation = [round(i * 100, 2) for i in min_vol_allocation.allocation]
+#     min_vol_allocation = min_vol_allocation.T
+
+#     return max_sharpe_allocation, min_vol_allocation
+
+# def simulate_portfolios_parallel(num_portfolios, mean_returns, cov_matrix, risk_free_rate):
+#     with Parallel(n_jobs=-1, prefer="threads") as parallel:
+#         results_and_weights = parallel(
+#             delayed(simulate_single_portfolio)(mean_returns, cov_matrix, risk_free_rate)
+#             for _ in range(num_portfolios)
+#         )
+
+#     results = np.array([item[0:3] for item in results_and_weights]).T
+#     weights_record = [item[3] for item in results_and_weights]
+
+#     # Now we calculate risk and return scores after all portfolios have been simulated.
+#     returns = results[0, :]
+#     volatilities = results[1, :]
+#     epsilon = 1e-10  # A small value
+#     risk_scores = (volatilities - np.min(volatilities)) / (np.max(volatilities) - np.min(volatilities) + epsilon) * 100
+#     return_scores = (returns - np.min(returns)) / (np.max(returns) - np.min(returns) + epsilon) * 100
+
+#     return results, weights_record, risk_scores, return_scores
+
+def value_at_risk(portfolio_returns, confidence_level=0.05):
+    """
+    Calculate Value at Risk (VaR) of a portfolio at a specified confidence level
+    """
+    return np.percentile(portfolio_returns, 100 * (1 - confidence_level))
+
+def conditional_value_at_risk(portfolio_returns, confidence_level=0.05):
+    """
+    Calculate Conditional Value at Risk (CVaR) of a portfolio at a specified confidence level
+    """
+    var = value_at_risk(portfolio_returns, confidence_level)
+    return portfolio_returns[portfolio_returns <= var].mean()
+
+def simulate_single_portfolio(mean_returns, cov_matrix, risk_free_rate):
+    num_assets = len(mean_returns)
+    weights = np.random.random(num_assets)
+    weights /= np.sum(weights)
+    returns = np.dot(weights, mean_returns)
+    volatility = np.sqrt(np.dot(weights.T, np.dot(cov_matrix, weights)))
+    sharpe_ratio = (returns - risk_free_rate) / volatility
+    var = value_at_risk(returns)
+    cvar = conditional_value_at_risk(returns)
+
+    return returns, volatility, sharpe_ratio, weights, var, cvar
+
+def get_key_allocations(results, weights_record, stock_data):
+    max_sharpe_idx = np.argmax(results[2])
+    sdp, rp = results[1, max_sharpe_idx], results[0, max_sharpe_idx]
+    max_sharpe_allocation = pd.DataFrame(weights_record[max_sharpe_idx], index=stock_data.columns, columns=['allocation'])
+    max_sharpe_allocation.allocation = [round(i * 100, 2) for i in max_sharpe_allocation.allocation]
+    max_sharpe_allocation = max_sharpe_allocation.T
+
+    min_vol_idx = np.argmin(results[1])
+    sdp_min, rp_min = results[1, min_vol_idx], results[0, min_vol_idx]
+    min_vol_allocation = pd.DataFrame(weights_record[min_vol_idx], index=stock_data.columns, columns=['allocation'])
+    min_vol_allocation.allocation = [round(i * 100, 2) for i in min_vol_allocation.allocation]
+    min_vol_allocation = min_vol_allocation.T
+
+    return max_sharpe_allocation, min_vol_allocation
+
+def simulate_portfolios_parallel(num_portfolios, mean_returns, cov_matrix, risk_free_rate):
+    with Parallel(n_jobs=-1, prefer="threads") as parallel:
+        results_and_weights = parallel(
+            delayed(simulate_single_portfolio)(mean_returns, cov_matrix, risk_free_rate)
+            for _ in range(num_portfolios)
+        )
+
+    results = np.array([item[0:6] for item in results_and_weights]).T
+    weights_record = [item[3] for item in results_and_weights]
+
+    # Now we calculate risk and return scores after all portfolios have been simulated.
+    returns = results[0, :]
+    volatilities = results[1, :]
+    epsilon = 1e-10  # A small value
+    risk_scores = (volatilities - np.min(volatilities)) / (np.max(volatilities) - np.min(volatilities) + epsilon) * 100
+    return_scores = (returns - np.min(returns)) / (np.max(returns) - np.min(returns) + epsilon) * 100
+
+    return results, weights_record, risk_scores, return_scores
+
+def format_data(data):
+    return ' '.join(f'\n{i}. ${ticker} | {info["allocation"]}%' for i, (ticker, info) in enumerate(data.items(), start=1))
+
 @app.route('/api/efficient_frontier', methods=['POST'])
 def efficient_frontier():
     data = request.json
@@ -239,12 +331,14 @@ def efficient_frontier():
 
     print(f"Data received: {data}")
 
+    prompt_tickers = data.get('tickers', '')
+
     user_profile = load_user_portfolio_from_dynamodb(username)
     print("user_profile::",user_profile)
 
     # Parse tickers from the prompt
-    prompt_tickers = prompt.split('$')[1].split()    
-    prompt_tickers = [ticker.upper() for ticker in prompt_tickers]
+    # prompt_tickers = prompt.split('$')[1].split()    
+    # prompt_tickers = [ticker.upper() for ticker in prompt_tickers]
 
     print(f"Prompt tickers after parsing and conversion: {prompt_tickers}")
 
@@ -282,17 +376,15 @@ def efficient_frontier():
     mean_returns = daily_returns.mean()
     cov_matrix = daily_returns.cov()
 
+    n_sims = 1000
     risk_free_rate = 0.045
-    num_portfolios = 10000
-    results, weights_record = simulate_portfolios_parallel(num_portfolios, mean_returns, cov_matrix, risk_free_rate)
+    num_portfolios = n_sims
 
-    max_sharpe_allocation, min_vol_allocation = get_key_allocations(results, weights_record, stock_data)
+    # results, weights_record = simulate_portfolios_parallel(num_portfolios, mean_returns, cov_matrix, risk_free_rate)
+    results, weights_record, risk_scores, return_scores = simulate_portfolios_parallel(num_portfolios, mean_returns, cov_matrix, risk_free_rate)
 
     max_sharpe_index = results[2, :].argmax()
     min_vol_index = results[1, :].argmin()
-
-    print(f"Max Sharpe Allocation: {max_sharpe_allocation.to_dict()}")
-    print(f"Min Volatility Allocation: {min_vol_allocation.to_dict()}")
 
     if ("low" in prompt or "medium" in prompt) and "risk" in prompt:
         print("low risk")
@@ -301,27 +393,49 @@ def efficient_frontier():
         print("high risk")
         user_risk_tolerance = "high"
 
+    # Calculate the portfolio's risk and return scores
+    risk_score = risk_scores[max_sharpe_index] if user_risk_tolerance == "high" else risk_scores[min_vol_index]
+    return_score = return_scores[max_sharpe_index] if user_risk_tolerance == "high" else return_scores[min_vol_index]
+
+    max_sharpe_allocation, min_vol_allocation = get_key_allocations(results, weights_record, stock_data)
+
+    print(f"Max Sharpe Allocation: {max_sharpe_allocation.to_dict()}")
+    print(f"Min Volatility Allocation: {min_vol_allocation.to_dict()}")
+    
     if user_risk_tolerance == "low" or user_risk_tolerance == "medium": 
         portfolio_allocation = min_vol_allocation
     else: 
         portfolio_allocation = max_sharpe_allocation
 
-    # Parse the prompt for 'save' command 
-    # save_user_portfolio_to_dynamodb(portfolio_allocation.to_dict(), username)
+    # save portfolio to chat history v1.06
+    timestamp = datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S")
+    portfolio_summary = format_data(portfolio_allocation)
 
+    chat = {
+        "query": prompt_tickers,
+        "response": portfolio_summary
+    }
+    save_chat_history(username, timestamp, chat)
+
+    # save portfolio
     if 'save' in prompt:
         save_user_portfolio_to_dynamodb(portfolio_allocation.to_dict(), username)
         # return jsonify({'message': 'Portfolio saved successfully'}), 200
+
+    print('risk_score', risk_score,'return_score', return_score)
 
     return jsonify({
         'tickers': tickers,
         'allocations': allocations,
         'portfolio_allocation': portfolio_allocation.to_dict(),    
-        'results': results.tolist(),
-        'weights_record': [w.tolist() for w in weights_record],
+        'results': [[r.tolist() if isinstance(r, np.ndarray) else r.item() for r in res] for res in results.tolist()],
+        'weights_record': [[w.item() for w in weights] for weights in weights_record],
         'max_sharpe_index': int(max_sharpe_index),
         'min_vol_index': int(min_vol_index),
+        'risk_score': risk_score.item() if np.isscalar(risk_score) else risk_score,
+        'return_score': return_score.item() if np.isscalar(return_score) else return_score
     })
+
 
 def save_prompt(prompt):
     table.put_item(
@@ -369,10 +483,10 @@ def api_combined_summary():
     user_portfolio = load_user_portfolio_from_dynamodb(username)
 
     # Parse tickers from the prompt
-    query_tickers = []
-    if '$' in query:
-        query_tickers = query.split('$')[1].split()
-        query_tickers = [ticker.upper() for ticker in query_tickers]
+    # query_tickers = []
+    # if '$' in query:
+    #     query_tickers = query.split('$')[1].split()
+    #     query_tickers = [ticker.upper() for ticker in query_tickers]
 
     if query:
         if 'price' in query or 'prices' in query:
@@ -393,7 +507,8 @@ def api_combined_summary():
             messages=[
                 {
                     "role": "system",
-                    "content": "You are an Investing AI that communicates in short, friendly and conversational manner. You provide portfolio updates in a format that anyone can understand, not in JSON format. Unless the user's query involves analyzing the optimized portfolio, please refrain from providing specific asset allocation breakdowns. Please assist the user with their query about portfolio optimization, personalized financial planning, and real-time market analysis.",
+                    "content": "You're an AI that chats in short, friendly and conversational manner. You provide portfolio updates in a format that anyone can understand, never in JSON format. Unless the user's query involves analyzing the optimized portfolio, you assist with ticker lists, strategey, recommendations, portfolio optimization, personalized financial planning, and real-time market analysis.",
+                    # "content": "You are an AI Optimizer. You help financial professionals balance client portfolios, recommend strategy optimization, strategy brainstorming and more. Try to keep responses under 150 characters."
                 },
                 {
                     "role": "user", 
