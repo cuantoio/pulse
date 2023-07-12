@@ -522,6 +522,11 @@ def download_ticker_data(ticker, start_date, end_date):
 def fetch_data(portfolio, text):
     events = extract_events_dates(text)
     event_dates = sorted([parse_date(date) for date in events.keys()])
+
+    if not event_dates:
+        # Handle the case when no event dates are available
+        return None, None
+
     start_date = event_dates[0] - relativedelta(months=6)
     end_date = event_dates[-1] + relativedelta(months=6)
 
