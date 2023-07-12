@@ -478,14 +478,14 @@ from dateutil.relativedelta import relativedelta
 import concurrent.futures
 
 default_portfolio = {
-    'EEM': {'allocation': 4.09}, 
-    'EFA': {'allocation': 25.94}, 
-    'IEF': {'allocation': 0.85}, 
-    'IJH': {'allocation': 23.83}, 
-    'IJR': {'allocation': 26.2}, 
-    'LQD': {'allocation': 0.29}, 
+    # 'EEM': {'allocation': 4.09}, 
+    # 'EFA': {'allocation': 25.94}, 
+    # 'IEF': {'allocation': 0.85}, 
+    # 'IJH': {'allocation': 23.83}, 
+    # 'IJR': {'allocation': 26.2}, 
+    # 'LQD': {'allocation': 0.29}, 
     'SPY': {'allocation': 3.82}, 
-    'VNQ': {'allocation': 14.99}
+    # 'VNQ': {'allocation': 14.99}
 }
 
 def extract_events_dates(text):
@@ -522,11 +522,6 @@ def download_ticker_data(ticker, start_date, end_date):
 def fetch_data(portfolio, text):
     events = extract_events_dates(text)
     event_dates = sorted([parse_date(date) for date in events.keys()])
-
-    if not event_dates:
-        # Handle the case when no event dates are available
-        return None, None
-
     start_date = event_dates[0] - relativedelta(months=6)
     end_date = event_dates[-1] + relativedelta(months=6)
 
