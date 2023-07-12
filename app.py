@@ -59,7 +59,7 @@ def run_test():
 
 @app.route('/eb')
 def run_eb():
-    return 'eb-live v1.06'
+    return 'eb-live v1.07'
 
 # Updated function get_user_profile()
 def get_user_profile(username):
@@ -195,71 +195,6 @@ def load_user_portfolio_from_dynamodb(username):
             'username': username,
             'portfolio': portfolio,
         }
-
-# def simulate_single_portfolio(mean_returns, cov_matrix, risk_free_rate):
-#     num_assets = len(mean_returns)
-#     weights = np.random.random(num_assets)
-#     weights /= np.sum(weights)
-#     returns = np.dot(weights, mean_returns)
-#     volatility = np.sqrt(np.dot(weights.T, np.dot(cov_matrix, weights)))
-#     sharpe_ratio = (returns - risk_free_rate) / volatility
-#     return returns, volatility, sharpe_ratio, weights
-
-# def simulate_portfolios_parallel(num_portfolios, mean_returns, cov_matrix, risk_free_rate):
-#     with Parallel(n_jobs=-1, prefer="threads") as parallel:
-#         results_and_weights = parallel(
-#             delayed(simulate_single_portfolio)(mean_returns, cov_matrix, risk_free_rate)
-#             for _ in range(num_portfolios)
-#         )
-
-#     results = np.array([item[0:3] for item in results_and_weights]).T
-#     weights_record = [item[3] for item in results_and_weights]
-
-#     return results, weights_record
-
-# def simulate_single_portfolio(mean_returns, cov_matrix, risk_free_rate):
-#     num_assets = len(mean_returns)
-#     weights = np.random.random(num_assets)
-#     weights /= np.sum(weights)
-#     returns = np.dot(weights, mean_returns)
-#     volatility = np.sqrt(np.dot(weights.T, np.dot(cov_matrix, weights)))
-#     sharpe_ratio = (returns - risk_free_rate) / volatility
-
-#     return returns, volatility, sharpe_ratio, weights
-
-# def get_key_allocations(results, weights_record, stock_data):
-#     max_sharpe_idx = np.argmax(results[2])
-#     sdp, rp = results[1, max_sharpe_idx], results[0, max_sharpe_idx]
-#     max_sharpe_allocation = pd.DataFrame(weights_record[max_sharpe_idx], index=stock_data.columns, columns=['allocation'])
-#     max_sharpe_allocation.allocation = [round(i * 100, 2) for i in max_sharpe_allocation.allocation]
-#     max_sharpe_allocation = max_sharpe_allocation.T
-
-#     min_vol_idx = np.argmin(results[1])
-#     sdp_min, rp_min = results[1, min_vol_idx], results[0, min_vol_idx]
-#     min_vol_allocation = pd.DataFrame(weights_record[min_vol_idx], index=stock_data.columns, columns=['allocation'])
-#     min_vol_allocation.allocation = [round(i * 100, 2) for i in min_vol_allocation.allocation]
-#     min_vol_allocation = min_vol_allocation.T
-
-#     return max_sharpe_allocation, min_vol_allocation
-
-# def simulate_portfolios_parallel(num_portfolios, mean_returns, cov_matrix, risk_free_rate):
-#     with Parallel(n_jobs=-1, prefer="threads") as parallel:
-#         results_and_weights = parallel(
-#             delayed(simulate_single_portfolio)(mean_returns, cov_matrix, risk_free_rate)
-#             for _ in range(num_portfolios)
-#         )
-
-#     results = np.array([item[0:3] for item in results_and_weights]).T
-#     weights_record = [item[3] for item in results_and_weights]
-
-#     # Now we calculate risk and return scores after all portfolios have been simulated.
-#     returns = results[0, :]
-#     volatilities = results[1, :]
-#     epsilon = 1e-10  # A small value
-#     risk_scores = (volatilities - np.min(volatilities)) / (np.max(volatilities) - np.min(volatilities) + epsilon) * 100
-#     return_scores = (returns - np.min(returns)) / (np.max(returns) - np.min(returns) + epsilon) * 100
-
-#     return results, weights_record, risk_scores, return_scores
 
 def value_at_risk(portfolio_returns, confidence_level=0.05):
     """
@@ -407,6 +342,8 @@ def efficient_frontier():
     else: 
         portfolio_allocation = max_sharpe_allocation
 
+    print(f"print portfolio_allocation: {portfolio_allocation.to_dict()}")
+
     # save portfolio to chat history v1.06
     timestamp = datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S")
     portfolio_summary = format_data(portfolio_allocation)
@@ -500,14 +437,15 @@ def api_combined_summary():
             previous_response = last_chat['response']
             gpt_prompt = f"Last query: {previous_query}\nLast response: {previous_response}\n\nCurrent query: {query}\n\nPlease provide a summary for the following query in a conversational tone: {query}. If the query involves analyzing the optimized portfolio, the current portfolio is: {user_portfolio}"
         else:
-            gpt_prompt = f"Please provide a summary for the following query in a conversational tone: {query}. If the query involves analyzing the optimized portfolio, the current portfolio is: {user_portfolio}" 
+            gpt_prompt = f"Please respond in short form, maintain conversational tone: {query}. If the query involves analyzing the optimized portfolio, the current portfolio is: {user_portfolio}" 
 
         response = openai.ChatCompletion.create(
-            model="gpt-3.5-turbo",
+            # model="gpt-3.5-turbo",
+            model="gpt-4",
             messages=[
                 {
                     "role": "system",
-                    "content": "You're an AI that chats in short, friendly and conversational manner. You provide portfolio updates in a format that anyone can understand, never in JSON format. Unless the user's query involves analyzing the optimized portfolio, you assist with ticker lists, strategey, recommendations, portfolio optimization, personalized financial planning, and real-time market analysis.",
+                    "content": "You're an AI that chats in short, friendly and conversational manner. You provide portfolio updates in a format that anyone can understand, never in JSON format. Unless the user's query involves analyzing the optimized portfolio, you assist with ticker lists, strategey, recommendations, portfolio optimization, personalized financial planning, and real-time market analysis. provided tickers must be in this format: [$TICKER1 $TICKER2]",
                     # "content": "You are an AI Optimizer. You help financial professionals balance client portfolios, recommend strategy optimization, strategy brainstorming and more. Try to keep responses under 150 characters."
                 },
                 {
@@ -531,6 +469,143 @@ def api_combined_summary():
     else:  # If the user query is empty, ask for more details.
         combined_summary = "Could you give us more specifics on what you're intending to accomplish?" 
         return jsonify({'combined_summary': combined_summary, 'username': username})
+
+### SCENARIOS - START ###
+import yfinance as yf
+import re
+from datetime import datetime
+from dateutil.relativedelta import relativedelta
+import concurrent.futures
+
+default_portfolio = {
+    'EEM': {'allocation': 4.09}, 
+    'EFA': {'allocation': 25.94}, 
+    'IEF': {'allocation': 0.85}, 
+    'IJH': {'allocation': 23.83}, 
+    'IJR': {'allocation': 26.2}, 
+    'LQD': {'allocation': 0.29}, 
+    'SPY': {'allocation': 3.82}, 
+    'VNQ': {'allocation': 14.99}
+}
+
+def extract_events_dates(text):
+    pattern = r"'event': '([^']+)', 'date': '([^']+)'"
+    matches = re.findall(pattern, text)
+    dates = {match[1]: match[0] for match in matches}
+    return dates
+    
+def parse_date(date):
+    if ' ongoing' in date or ' onwards' in date:
+        date = date.split('-')[0].strip()
+        if len(date.split(' ')[0]) == 4:  # it is a year
+            return datetime.strptime(date + "-01-01", "%Y-%m-%d")
+        else:
+            return datetime.strptime(date + "-01", "%Y-%m-%d")
+    else:
+        try:
+            return datetime.strptime(date, "%Y-%m-%d")
+        except ValueError:
+            print(f"Date {date} is not in the expected format 'YYYY-MM-DD'. Trying to correct it.")
+            if len(date) == 7:  # Check if date is in 'YYYY-MM' format
+                date += '-01'
+            try:
+                return datetime.strptime(date, "%Y-%m-%d")
+            except ValueError:
+                print(f"Failed to correct the date {date}.")
+                return None  # Or handle it as appropriate for your use case
+
+def download_ticker_data(ticker, start_date, end_date):
+    ticker_data = yf.download(ticker, start=start_date.strftime('%Y-%m-%d'), end=end_date.strftime('%Y-%m-%d'), interval='1d')
+    ticker_data['norm_close'] = ticker_data['Close'].div(ticker_data['Close'].iloc[0]).subtract(1).mul(100)
+    return ticker, ticker_data
+
+def fetch_data(portfolio, text):
+    events = extract_events_dates(text)
+    event_dates = sorted([parse_date(date) for date in events.keys()])
+    start_date = event_dates[0] - relativedelta(months=6)
+    end_date = event_dates[-1] + relativedelta(months=6)
+
+    tickers = list(portfolio.keys())
+
+    with concurrent.futures.ThreadPoolExecutor() as executor:
+        future_to_ticker = {executor.submit(download_ticker_data, ticker, start_date, end_date): ticker for ticker in tickers}
+        data = {}
+        for future in concurrent.futures.as_completed(future_to_ticker):
+            ticker = future_to_ticker[future]
+            try:
+                data[ticker] = future.result()[1]
+            except Exception as exc:
+                print('%r generated an exception: %s' % (ticker, exc))
+
+    return data, events
+
+@app.route('/api/scenarios', methods=['POST'])
+def api_scenarios():
+    data = request.json
+    query = data.get('query')
+    username = data.get('username', 'tsm')
+
+    # received prompt data
+    timestamp = datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S")
+
+    gpt_prompt = f"""given this query: {query}"""
+
+    print("scenarios:: gpt_prompt:", gpt_prompt)
+
+    response = openai.ChatCompletion.create(
+        model="gpt-3.5-turbo",
+        # model="gpt-4",
+        messages=[
+            {
+                "role": "system",
+                "content": "please list the major market impacting events given the users' query along with a detailed date including year-month-day. response must be in a dictionary format like so: [{'event': 'event 1', 'date': '2020-02-12'}, {'event': 'event 2', 'date': '2021-12-31'}]",
+            },
+            {
+                "role": "user", 
+                "content": gpt_prompt
+            },
+        ],
+    )
+
+    gpt_response = response.choices[0].message['content'].strip()
+    print("scenarios:: scenarios_response:", gpt_response)
+    # Use 'gpt_response' instead of 'text' as input for fetch_data function
+    data, events = fetch_data(default_portfolio, text=gpt_response)
+
+    # summarize
+    gpt_prompt_story = f"""summarize this simply and concisely: {query}"""
+    
+    response_story = openai.ChatCompletion.create(
+        model="gpt-3.5-turbo",
+        # model="gpt-4",
+        messages=[
+            {
+                "role": "system",
+                "content": "you help users understand their data better, by providing incredible summaries.",
+            },
+            {
+                "role": "user", 
+                "content": gpt_prompt_story
+            },
+        ],
+    )
+
+    gpt_response_story = response_story.choices[0].message['content'].strip()
+    print("scenarios:: scenarios_response_story:", gpt_response_story)
+
+    # Save chat history to DynamoDB
+    chat = {
+        "query": query,
+        "scenarios_response_story": gpt_response_story,
+        "gpt_response": gpt_response,
+    }
+    save_chat_history(username, timestamp, chat)
+
+    # Convert pandas dataframes to json before returning
+    data_json = {ticker: df.to_json() for ticker, df in data.items()}
+    return jsonify({'scenarios_response': gpt_response_story, 'username': username, 'data': data_json, 'events': events})
+
+### SCENARIOS - END ###
 
 if __name__ == "__main__":
     # app.run(port=5000)
