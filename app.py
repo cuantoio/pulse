@@ -8,6 +8,7 @@ import yfinance as yf
 import boto3
 import time
 import json
+import ast
 import re 
 import os
 
@@ -59,7 +60,7 @@ def run_test():
 
 @app.route('/eb')
 def run_eb():
-    return 'eb-live v1.07'
+    return 'eb-live v2.0'
 
 # Updated function get_user_profile()
 def get_user_profile(username):
@@ -156,45 +157,6 @@ def load_chat_history():
     chat_history = [chat for chat in chat_history if isinstance(chat, dict)]
 
     return chat_history[:7]
-
-PROFILE_PREFIX = 'user_profile/'
-
-def save_user_portfolio_to_dynamodb(portfolio, username):
-    """
-    Save a user's portfolio and temporary portfolio to a DynamoDB table.
-    """
-
-    print("portfolio + username::", portfolio, username)
-
-    table_portfolio.put_item(
-        Item={
-            'username': username,
-            'portfolio': json.dumps(portfolio),
-        }
-    )
-
-def load_user_portfolio_from_dynamodb(username):
-    """
-    Load a user's portfolio from DynamoDB. 
-    If the user has a saved portfolio, load it as the temporary portfolio.
-    """
-    try:
-        response = table_portfolio.get_item(Key={'username': username})
-        print("load user")
-    except ClientError as e:
-        print(e.response['Error']['Message'])
-    else:
-        item = response.get('Item')
-        if item is None:
-            return None
-
-        portfolio = json.loads(item.get('portfolio', '{}'))
-        temp_portfolio = json.loads(item.get('temp_portfolio', '{}'))
-
-        return {
-            'username': username,
-            'portfolio': portfolio,
-        }
 
 def value_at_risk(portfolio_returns, confidence_level=0.05):
     """
@@ -373,7 +335,6 @@ def efficient_frontier():
         'return_score': return_score.item() if np.isscalar(return_score) else return_score
     })
 
-
 def save_prompt(prompt):
     table.put_item(
         Item={
@@ -419,12 +380,6 @@ def api_combined_summary():
 
     user_portfolio = load_user_portfolio_from_dynamodb(username)
 
-    # Parse tickers from the prompt
-    # query_tickers = []
-    # if '$' in query:
-    #     query_tickers = query.split('$')[1].split()
-    #     query_tickers = [ticker.upper() for ticker in query_tickers]
-
     if query:
         if 'price' in query or 'prices' in query:
             print('price request')
@@ -432,7 +387,7 @@ def api_combined_summary():
         # Load last chat history
         last_chat = load_chat_history(username)
         if last_chat:
-            # If a previous chat history exists, add it to the prompt
+            # If a previous chat history exists, add it to the prompt        
             previous_query = last_chat['query']
             previous_response = last_chat['response']
             gpt_prompt = f"Last query: {previous_query}\nLast response: {previous_response}\n\nCurrent query: {query}\n\nPlease provide a summary for the following query in a conversational tone: {query}. If the query involves analyzing the optimized portfolio, the current portfolio is: {user_portfolio}"
@@ -460,15 +415,114 @@ def api_combined_summary():
         # Save chat history to DynamoDB
         chat = {
             "query": query,
-            "response": gpt_response
+            "trianglai_response": gpt_response
         }
         save_chat_history(username, timestamp, chat)
 
-        return jsonify({'combined_summary': gpt_response, 'username': username})
+        return jsonify({'trianglai_response': gpt_response, 'username': username})
 
     else:  # If the user query is empty, ask for more details.
         combined_summary = "Could you give us more specifics on what you're intending to accomplish?" 
-        return jsonify({'combined_summary': combined_summary, 'username': username})
+        return jsonify({'trianglai_response': combined_summary, 'username': username})
+
+# default_portfolio = {
+#     'DLR': {'allocation': 18.58134053},
+#     'SPG': {'allocation': 5.96591771},
+#     'ARE': {'allocation': 5.21638715},
+#     'EQR': {'allocation': 7.01589525},
+#     'NVDA': {'allocation': 7.32163178},
+#     'EQIX': {'allocation': 7.94139182},
+#     'JNJ': {'allocation': 2.48767978},
+#     'VOO': {'allocation': 3.68012278},
+#     'AEP': {'allocation': 1.52550893},
+#     'MSFT': {'allocation': 3.86296522},
+#     'AVB': {'allocation': 1.10375472},
+#     'NEE': {'allocation': 1.76459701},
+#     'META': {'allocation': 6.89370643},
+#     'XLU': {'allocation': 0.52595852},
+#     'GOOGL': {'allocation': 2.48027440},
+#     'IAU': {'allocation': 0.77721259},
+#     'WELL': {'allocation': 0.37203234},
+#     'WY': {'allocation': 0.33976603},
+#     'BA': {'allocation': 1.28836035},
+#     'D': {'allocation': 0.14704975},
+#     'O': {'allocation': 0.10755437},
+#     'GLD': {'allocation': 0.20858496},
+#     'AGG': {'allocation': 0.03544005},
+#     'TLT': {'allocation': 0.59754389},
+#     'AMZN': {'allocation': 0.65378954},
+#     'RTX': {'allocation': 1.78152360},
+#     'AAPL': {'allocation': 3.65843559},
+#     'AMD': {'allocation': 3.81236177},
+#     'TSLA': {'allocation': 2.72006775},
+#     'ETH-USD': {'allocation': 7.12062853},
+#     'DOGE-USD': {'allocation': 0.01251686},
+#     'CASH': {'allocation': 0.00000000},
+# }
+
+# default_portfolio = { 'META': {'allocation': 25}, 'AAPL': {'allocation': 25}, }
+
+# default_portfolio = {
+#     'AAPL': {'allocation': 1.00},
+#     'AMZN': {'allocation': 12.00},
+#     'GM': {'allocation': 26.00},
+#     'META': {'allocation': 1.00},
+#     'MSFT': {'allocation': 1.00},
+#     'NVDA': {'allocation': 11.00},
+#     'TSLA': {'allocation': 2.00},
+#     'CASH': {'allocation': 1735.16},
+# }
+
+# default_portfolio = {
+#     'QQQ': {'allocation': 0.12270776},
+#     'VYM': {'allocation': 0.07852126},
+#     'NVDA': {'allocation': 0.33522165},
+#     'VOO': {'allocation': 0.18964405},
+#     'AAPL': {'allocation': 0.15792791},
+#     'MSFT': {'allocation': 0.11597737},
+#     'CASH': {'allocation': -0.00000000},
+# }
+
+PROFILE_PREFIX = 'user_profile/'
+
+def save_user_portfolio_to_dynamodb(portfolio, username):
+    """
+    Save a user's portfolio and temporary portfolio to a DynamoDB table.
+    """
+
+    print("portfolio + username::", portfolio, username)
+
+    table_portfolio.put_item(
+        Item={
+            'username': username,
+            'portfolio': json.dumps(portfolio),
+            'portfolio_name': 'test1',
+            'notes': 'test1 notes',
+        }
+    )
+
+def load_user_portfolio_from_dynamodb(username):
+    """
+    Load a user's portfolio from DynamoDB. 
+    If the user has a saved portfolio, load it as the temporary portfolio.
+    """
+    try:
+        response = table_portfolio.get_item(Key={'username': username})
+        print("load user")
+    except ClientError as e:
+        print(e.response['Error']['Message'])
+    else:
+        item = response.get('Item')
+        if item is None:
+            return None
+
+        portfolio = json.loads(item.get('portfolio', '{}'))
+        temp_portfolio = json.loads(item.get('temp_portfolio', '{}'))
+
+        return {
+            'username': username,
+            'portfolio': portfolio,
+        }
 
 ### SCENARIOS - START ###
 import yfinance as yf
@@ -478,14 +532,14 @@ from dateutil.relativedelta import relativedelta
 import concurrent.futures
 
 default_portfolio = {
-    # 'EEM': {'allocation': 4.09}, 
-    # 'EFA': {'allocation': 25.94}, 
-    # 'IEF': {'allocation': 0.85}, 
-    # 'IJH': {'allocation': 23.83}, 
-    # 'IJR': {'allocation': 26.2}, 
-    # 'LQD': {'allocation': 0.29}, 
-    'SPY': {'allocation': 3.82}, 
-    # 'VNQ': {'allocation': 14.99}
+    'IJR': {'allocation': 26.2},
+    'EFA': {'allocation': 25.94},
+    'IJH': {'allocation': 23.83},
+    'VNQ': {'allocation': 14.99},
+    'EEM': {'allocation': 4.09},
+    'SPY': {'allocation': 3.82},
+    'IEF': {'allocation': 0.85},
+    'LQD': {'allocation': 0.29},
 }
 
 def extract_events_dates(text):
@@ -514,11 +568,6 @@ def parse_date(date):
                 print(f"Failed to correct the date {date}.")
                 return None  # Or handle it as appropriate for your use case
 
-def download_ticker_data(ticker, start_date, end_date):
-    ticker_data = yf.download(ticker, start=start_date.strftime('%Y-%m-%d'), end=end_date.strftime('%Y-%m-%d'), interval='1d')
-    ticker_data['norm_close'] = ticker_data['Close'].div(ticker_data['Close'].iloc[0]).subtract(1).mul(100)
-    return ticker, ticker_data
-
 def fetch_data(portfolio, text):
     events = extract_events_dates(text)
     event_dates = sorted([parse_date(date) for date in events.keys()])
@@ -526,19 +575,83 @@ def fetch_data(portfolio, text):
     end_date = event_dates[-1] + relativedelta(months=6)
 
     tickers = list(portfolio.keys())
+    data = {}
+    bad_tickers = []
+    
+    for ticker in tickers:
+        try:
+            data[ticker] = yf.download(ticker, start=start_date.strftime('%Y-%m-%d'), end=end_date.strftime('%Y-%m-%d'), interval='1d')['Adj Close']
+        except Exception as exc:
+            print('%r generated an exception: %s' % (ticker, exc))
+            bad_tickers.append(ticker)
 
-    with concurrent.futures.ThreadPoolExecutor() as executor:
-        future_to_ticker = {executor.submit(download_ticker_data, ticker, start_date, end_date): ticker for ticker in tickers}
-        data = {}
-        for future in concurrent.futures.as_completed(future_to_ticker):
-            ticker = future_to_ticker[future]
-            try:
-                data[ticker] = future.result()[1]
-            except Exception as exc:
-                print('%r generated an exception: %s' % (ticker, exc))
+    data_pct_change = pd.concat(data, axis=1).pct_change()+1
+    data_pct_change.iloc[0] = 1 
+    data_pct_change_cumprod = data_pct_change.cumprod()
+    data_pct_change_cumprod = (data_pct_change_cumprod - 1)*100
 
-    return data, events
+    blended_portfolio = pd.Series(0, index=data_pct_change_cumprod.index)
+    for ticker in portfolio:
+        if ticker not in bad_tickers:
+            blended_portfolio += data_pct_change_cumprod[ticker].fillna(0) * portfolio[ticker]['allocation'] / 100
 
+    blended_portfolio_df = pd.DataFrame(blended_portfolio, columns=['blended_portfolio'])
+    blended_portfolio_df['norm_close'] = blended_portfolio_df['blended_portfolio']
+
+    print(f"Bad tickers: {bad_tickers}")
+    return blended_portfolio_df, events
+
+def parse_portfolio_data(text):
+    # remove comment from the input string
+    text = re.sub(r"//.*", "", text)
+
+    # find the text inside the brackets
+    data_text = re.search(r'\[(.*)\]', text, re.DOTALL).group(1)
+
+    # turn it back into a python list of dictionaries
+    data = ast.literal_eval('[' + data_text + ']')
+    
+    return data
+
+@app.route('/api/parsePortfolio', methods=['POST'])
+def api_parse_portfolio():
+    data = request.json
+    username = data.get('username', 'tsm')
+
+    gpt_prompt = f"""given uploaded portfolio: {data}"""
+
+    print("parser:: gpt_prompt:", gpt_prompt)
+
+    try:
+        response = openai.ChatCompletion.create(
+            model="gpt-4",
+            messages=[
+                {
+                    "role": "system",
+                    "content": "please parse the portfolio data given the uploaded portfolio. The response must be in a format like this: [{ 'META': {'allocation': 25}, 'AAPL': {'allocation': 25}, }]",
+                },
+                {
+                    "role": "user", 
+                    "content": gpt_prompt
+                },
+            ],
+        )
+
+        gpt_response = response.choices[0].message['content'].strip()
+        print("scenarios:: trianglai_response:", gpt_response)
+        gpt_response_data = parse_portfolio_data(gpt_response)
+        print("scenarios:: trianglai_response:", gpt_response_data)
+
+        #save portfolio
+        save_user_portfolio_to_dynamodb(gpt_response_data, username)
+
+        # Assume that gpt_response is a dictionary, convert it to JSON and return
+        return jsonify(gpt_response_data), 200
+
+    except Exception as e:
+        # If there is an error, return a error message and a 500 status
+        return jsonify({"error": str(e)}), 500
+    
 @app.route('/api/scenarios', methods=['POST'])
 def api_scenarios():
     data = request.json
@@ -553,8 +666,8 @@ def api_scenarios():
     print("scenarios:: gpt_prompt:", gpt_prompt)
 
     response = openai.ChatCompletion.create(
-        model="gpt-3.5-turbo",
-        # model="gpt-4",
+        # model="gpt-3.5-turbo",
+        model="gpt-4",
         messages=[
             {
                 "role": "system",
@@ -568,9 +681,14 @@ def api_scenarios():
     )
 
     gpt_response = response.choices[0].message['content'].strip()
-    print("scenarios:: scenarios_response:", gpt_response)
+    print("scenarios:: trianglai_response:", gpt_response)
     # Use 'gpt_response' instead of 'text' as input for fetch_data function
+
+    ## PREVIOUSLY HERE - WANT TO LOAD USER PORTFOLIO - will have to change default portfolio
+    print("ISSUE 1.2::: load_user_portfolio_from_dynamodb", load_user_portfolio_from_dynamodb)
+
     data, events = fetch_data(default_portfolio, text=gpt_response)
+    print("scenarios:: fetched_data:", data)
 
     # summarize
     gpt_prompt_story = f"""summarize this simply and concisely: {query}"""
@@ -591,19 +709,19 @@ def api_scenarios():
     )
 
     gpt_response_story = response_story.choices[0].message['content'].strip()
-    print("scenarios:: scenarios_response_story:", gpt_response_story)
+    print("scenarios:: trianglai_response_story:", gpt_response_story)
 
     # Save chat history to DynamoDB
     chat = {
         "query": query,
-        "scenarios_response_story": gpt_response_story,
-        "gpt_response": gpt_response,
+        "trianglai_response": gpt_response_story,
+        "trianglai_response_insights": gpt_response,
     }
     save_chat_history(username, timestamp, chat)
 
     # Convert pandas dataframes to json before returning
     data_json = {ticker: df.to_json() for ticker, df in data.items()}
-    return jsonify({'scenarios_response': gpt_response_story, 'username': username, 'data': data_json, 'events': events})
+    return jsonify({'trianglai_response': gpt_response_story, 'username': username, 'data': data_json, 'events': events})
 
 ### SCENARIOS - END ###
 
