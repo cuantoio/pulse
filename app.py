@@ -531,6 +531,41 @@ from datetime import datetime
 from dateutil.relativedelta import relativedelta
 import concurrent.futures
 
+# default_portfolio = {
+#     'DLR': {'allocation': 18.58134053},
+#     'SPG': {'allocation': 5.96591771},
+#     'ARE': {'allocation': 5.21638715},
+#     'EQR': {'allocation': 7.01589525},
+#     'NVDA': {'allocation': 7.32163178},
+#     'EQIX': {'allocation': 7.94139182},
+#     'JNJ': {'allocation': 2.48767978},
+#     'VOO': {'allocation': 3.68012278},
+#     'AEP': {'allocation': 1.52550893},
+#     'MSFT': {'allocation': 3.86296522},
+#     'AVB': {'allocation': 1.10375472},
+#     'NEE': {'allocation': 1.76459701},
+#     'META': {'allocation': 6.89370643},
+#     'XLU': {'allocation': 0.52595852},
+#     'GOOGL': {'allocation': 2.48027440},
+#     'IAU': {'allocation': 0.77721259},
+#     'WELL': {'allocation': 0.37203234},
+#     'WY': {'allocation': 0.33976603},
+#     'BA': {'allocation': 1.28836035},
+#     'D': {'allocation': 0.14704975},
+#     'O': {'allocation': 0.10755437},
+#     'GLD': {'allocation': 0.20858496},
+#     'AGG': {'allocation': 0.03544005},
+#     'TLT': {'allocation': 0.59754389},
+#     'AMZN': {'allocation': 0.65378954},
+#     'RTX': {'allocation': 1.78152360},
+#     'AAPL': {'allocation': 3.65843559},
+#     'AMD': {'allocation': 3.81236177},
+#     'TSLA': {'allocation': 2.72006775},
+#     'ETH-USD': {'allocation': 7.12062853},
+#     'DOGE-USD': {'allocation': 0.01251686},
+#     'CASH': {'allocation': 0.00000000},
+# }
+
 default_portfolio = {
     'IJR': {'allocation': 26.2},
     'EFA': {'allocation': 25.94},
@@ -541,6 +576,8 @@ default_portfolio = {
     'IEF': {'allocation': 0.85},
     'LQD': {'allocation': 0.29},
 }
+
+print(default_portfolio)
 
 def extract_events_dates(text):
     pattern = r"'event': '([^']+)', 'date': '([^']+)'"
@@ -597,7 +634,7 @@ def fetch_data(portfolio, text):
 
     blended_portfolio_df = pd.DataFrame(blended_portfolio, columns=['blended_portfolio'])
     blended_portfolio_df['norm_close'] = blended_portfolio_df['blended_portfolio']
-
+    
     print(f"Bad tickers: {bad_tickers}")
     return blended_portfolio_df, events
 
@@ -640,7 +677,7 @@ def api_parse_portfolio():
         gpt_response = response.choices[0].message['content'].strip()
         print("scenarios:: trianglai_response:", gpt_response)
         gpt_response_data = parse_portfolio_data(gpt_response)
-        print("scenarios:: trianglai_response:", gpt_response_data)
+        print("scenarios:: trianglai_response_data:", gpt_response_data)
 
         #save portfolio
         save_user_portfolio_to_dynamodb(gpt_response_data, username)
@@ -726,5 +763,5 @@ def api_scenarios():
 ### SCENARIOS - END ###
 
 if __name__ == "__main__":
-    # app.run(port=5000)
-    app.run(host="0.0.0.0", port=8080)
+    app.run(port=5000)
+    # app.run(host="0.0.0.0", port=8080)
