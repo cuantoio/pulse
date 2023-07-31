@@ -1,0 +1,8 @@
+[2023-07-28 15:54:16 -0700] [23580] [INFO] Starting gunicorn 20.1.0
+[2023-07-28 15:54:16 -0700] [23580] [INFO] Listening at: http://0.0.0.0:443 (23580)
+[2023-07-28 15:54:16 -0700] [23580] [INFO] Using worker: sync
+[2023-07-28 15:54:16 -0700] [23581] [INFO] Booting worker with pid: 23581
+[2023-07-28 15:55:17 -0700] [23580] [INFO] Handling signal: int
+[2023-07-28 15:55:18 -0700] [23581] [INFO] Worker exiting (pid: 23581)
+{'IJR': {'allocation': 26.2}, 'EFA': {'allocation': 25.94}, 'IJH': {'allocation': 23.83}, 'VNQ': {'allocation': 14.99}, 'EEM': {'allocation': 4.09}, 'SPY': {'allocation': 3.82}, 'IEF': {'allocation': 0.85}, 'LQD': {'allocation': 0.29}}
+[2023-07-28 15:55:18 -0700] [23580] [INFO] Shutting down: Master

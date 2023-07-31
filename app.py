@@ -60,7 +60,7 @@ def run_test():
 
 @app.route('/eb')
 def run_eb():
-    return 'eb-live v2.0'
+    return 'eb-live v2.1'
 
 # Updated function get_user_profile()
 def get_user_profile(username):
@@ -312,7 +312,7 @@ def efficient_frontier():
 
     chat = {
         "query": prompt_tickers,
-        "response": portfolio_summary
+        "trianglai_response": portfolio_summary
     }
     save_chat_history(username, timestamp, chat)
 
@@ -380,50 +380,34 @@ def api_combined_summary():
 
     user_portfolio = load_user_portfolio_from_dynamodb(username)
 
-    if query:
-        if 'price' in query or 'prices' in query:
-            print('price request')
+    gpt_prompt = f"""given this query: {query}"""
+    
+    response = openai.ChatCompletion.create(
+        # model="gpt-3.5-turbo",
+        model="gpt-4",
+        messages=[
+            {
+                "role": "system",
+                "content": "You're an AI that chats in short, friendly and conversational manner. You provide portfolio updates in a format that anyone can understand, never in JSON format. Unless the user's query involves analyzing the optimized portfolio, you assist with ticker lists, strategey, recommendations, portfolio optimization, personalized financial planning, and real-time market analysis. provided tickers must be in this format: [$TICKER1 $TICKER2]",
+                # "content": "You are an AI Optimizer. You help financial professionals balance client portfolios, recommend strategy optimization, strategy brainstorming and more. Try to keep responses under 150 characters."
+            },
+            {
+                "role": "user", 
+                "content": gpt_prompt
+            },
+        ],
+    )
 
-        # Load last chat history
-        last_chat = load_chat_history(username)
-        if last_chat:
-            # If a previous chat history exists, add it to the prompt        
-            previous_query = last_chat['query']
-            previous_response = last_chat['response']
-            gpt_prompt = f"Last query: {previous_query}\nLast response: {previous_response}\n\nCurrent query: {query}\n\nPlease provide a summary for the following query in a conversational tone: {query}. If the query involves analyzing the optimized portfolio, the current portfolio is: {user_portfolio}"
-        else:
-            gpt_prompt = f"Please respond in short form, maintain conversational tone: {query}. If the query involves analyzing the optimized portfolio, the current portfolio is: {user_portfolio}" 
+    gpt_response = response.choices[0].message['content'].strip()
 
-        response = openai.ChatCompletion.create(
-            # model="gpt-3.5-turbo",
-            model="gpt-4",
-            messages=[
-                {
-                    "role": "system",
-                    "content": "You're an AI that chats in short, friendly and conversational manner. You provide portfolio updates in a format that anyone can understand, never in JSON format. Unless the user's query involves analyzing the optimized portfolio, you assist with ticker lists, strategey, recommendations, portfolio optimization, personalized financial planning, and real-time market analysis. provided tickers must be in this format: [$TICKER1 $TICKER2]",
-                    # "content": "You are an AI Optimizer. You help financial professionals balance client portfolios, recommend strategy optimization, strategy brainstorming and more. Try to keep responses under 150 characters."
-                },
-                {
-                    "role": "user", 
-                    "content": gpt_prompt
-                },
-            ],
-        )
+    # Save chat history to DynamoDB
+    chat = {
+        "query": query,
+        "trianglai_response": gpt_response
+    }
+    save_chat_history(username, timestamp, chat)
 
-        gpt_response = response.choices[0].message['content'].strip()
-
-        # Save chat history to DynamoDB
-        chat = {
-            "query": query,
-            "trianglai_response": gpt_response
-        }
-        save_chat_history(username, timestamp, chat)
-
-        return jsonify({'trianglai_response': gpt_response, 'username': username})
-
-    else:  # If the user query is empty, ask for more details.
-        combined_summary = "Could you give us more specifics on what you're intending to accomplish?" 
-        return jsonify({'trianglai_response': combined_summary, 'username': username})
+    return jsonify({'trianglai_response': gpt_response, 'username': username})
 
 # default_portfolio = {
 #     'DLR': {'allocation': 18.58134053},
@@ -703,8 +687,8 @@ def api_scenarios():
     print("scenarios:: gpt_prompt:", gpt_prompt)
 
     response = openai.ChatCompletion.create(
-        # model="gpt-3.5-turbo",
-        model="gpt-4",
+        model="gpt-3.5-turbo",
+        # model="gpt-4",
         messages=[
             {
                 "role": "system",
@@ -751,17 +735,17 @@ def api_scenarios():
     # Save chat history to DynamoDB
     chat = {
         "query": query,
-        "trianglai_response": gpt_response_story,
-        "trianglai_response_insights": gpt_response,
+        "trianglai_response_story": gpt_response_story,
+        "trianglai_response": gpt_response,
     }
     save_chat_history(username, timestamp, chat)
 
     # Convert pandas dataframes to json before returning
     data_json = {ticker: df.to_json() for ticker, df in data.items()}
-    return jsonify({'trianglai_response': gpt_response_story, 'username': username, 'data': data_json, 'events': events})
+    return jsonify({'trianglai_response_story': gpt_response_story, 'username': username, 'data': data_json, 'events': events})
 
 ### SCENARIOS - END ###
 
 if __name__ == "__main__":
-    app.run(port=5000)
-    # app.run(host="0.0.0.0", port=8080)
+    # app.run(port=5000)
+    app.run(host="0.0.0.0", port=8080)
