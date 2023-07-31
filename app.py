@@ -60,7 +60,7 @@ def run_test():
 
 @app.route('/eb')
 def run_eb():
-    return 'eb-live v2.1'
+    return 'eb-live v2.1a'
 
 # Updated function get_user_profile()
 def get_user_profile(username):
@@ -735,14 +735,14 @@ def api_scenarios():
     # Save chat history to DynamoDB
     chat = {
         "query": query,
-        "trianglai_response_story": gpt_response_story,
-        "trianglai_response": gpt_response,
+        "trianglai_response": gpt_response_story,
+        "trianglai_response_insights": gpt_response,
     }
     save_chat_history(username, timestamp, chat)
 
     # Convert pandas dataframes to json before returning
     data_json = {ticker: df.to_json() for ticker, df in data.items()}
-    return jsonify({'trianglai_response_story': gpt_response_story, 'username': username, 'data': data_json, 'events': events})
+    return jsonify({'trianglai_response': gpt_response_story, 'username': username, 'data': data_json, 'events': events})
 
 ### SCENARIOS - END ###
 
