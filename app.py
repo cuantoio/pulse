@@ -705,9 +705,6 @@ def api_scenarios():
     print("scenarios:: trianglai_response:", gpt_response)
     # Use 'gpt_response' instead of 'text' as input for fetch_data function
 
-    ## PREVIOUSLY HERE - WANT TO LOAD USER PORTFOLIO - will have to change default portfolio
-    print("ISSUE 1.2::: load_user_portfolio_from_dynamodb", load_user_portfolio_from_dynamodb)
-
     data, events = fetch_data(default_portfolio, text=gpt_response)
     print("scenarios:: fetched_data:", data)
 
@@ -745,6 +742,34 @@ def api_scenarios():
     return jsonify({'trianglai_response': gpt_response_story, 'username': username, 'data': data_json, 'events': events})
 
 ### SCENARIOS - END ###
+
+### PORTFOLIO STATE MGMT ###
+def get_user(user_id):
+    table = dynamodb.Table('Users')
+    response = table.get_item(Key={'UserId': user_id})
+    return response['Item']
+
+def get_portfolio(user_id, portfolio_name):
+    table = dynamodb.Table('Portfolios')
+    response = table.get_item(Key={'UserId': user_id, 'PortfolioName': portfolio_name})
+    return response['Item']
+
+def get_user_portfolios(user_id):
+    table = dynamodb.Table('Portfolios')
+    response = table.query(
+        KeyConditionExpression=boto3.dynamodb.conditions.Key('UserId').eq(user_id)
+    )
+    return response['Items']
+
+def get_portfolios_by_name(portfolio_name):
+    table = dynamodb.Table('Portfolios')
+    idx_name = 'PortfolioNameIndex'
+    response = table.query(
+        IndexName=idx_name,
+        KeyConditionExpression=boto3.dynamodb.conditions.Key('PortfolioName').eq(portfolio_name)
+    )
+    return response['Items']
+### PORTFOLIO STATE MGMT - END ###
 
 if __name__ == "__main__":
     # app.run(port=5000)
