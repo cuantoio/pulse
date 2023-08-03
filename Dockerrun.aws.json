@@ -1,7 +1,7 @@
 {
   "AWSEBDockerrunVersion": "1",
   "Image": {
-    "Name": "260939427961.dkr.ecr.us-west-2.amazonaws.com/pulse-backend:2.1",
+    "Name": "260939427961.dkr.ecr.us-west-2.amazonaws.com/pulse-backend:3.0",
     "Update": "true"
   },
   "Ports": [

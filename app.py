@@ -1,10 +1,11 @@
 # support api
 from datetime import datetime, timedelta, date
-from boto3.dynamodb.conditions import Key
+from boto3.dynamodb.conditions import Key, Attr
 from joblib import Parallel, delayed
 from dotenv import load_dotenv
 from scipy.stats import norm
 import yfinance as yf
+import traceback
 import boto3
 import time
 import json
@@ -60,7 +61,7 @@ def run_test():
 
 @app.route('/eb')
 def run_eb():
-    return 'eb-live v2.1a'
+    return 'eb-live v3'
 
 # Updated function get_user_profile()
 def get_user_profile(username):
@@ -101,7 +102,7 @@ def api_user_portfolio(username):
         return jsonify({'message': 'Invalid username supplied'}), 400
 
     # user_profile_df = get_user_profile(username)
-    user_portfolio = load_user_portfolio_from_dynamodb(username)
+    # user_portfolio = load_user_portfolio_from_dynamodb(username)
 
     if user_portfolio is None:
         return jsonify({'message': 'User not found'}), 404
@@ -230,8 +231,9 @@ def efficient_frontier():
 
     prompt_tickers = data.get('tickers', '')
 
-    user_profile = load_user_portfolio_from_dynamodb(username)
-    print("user_profile::",user_profile)
+    # user_profile = load_user_portfolio_from_dynamodb(username)
+    user_profile = {}
+    # print("user_profile::",user_profile)
 
     # Parse tickers from the prompt
     # prompt_tickers = prompt.split('$')[1].split()    
@@ -378,7 +380,7 @@ def api_combined_summary():
     # received prompt data
     timestamp = datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S")
 
-    user_portfolio = load_user_portfolio_from_dynamodb(username)
+    # user_portfolio = load_user_portfolio_from_dynamodb(username)
 
     gpt_prompt = f"""given this query: {query}"""
     
@@ -469,30 +471,29 @@ def api_combined_summary():
 
 PROFILE_PREFIX = 'user_profile/'
 
-def save_user_portfolio_to_dynamodb(portfolio, username):
+def save_user_portfolio_to_dynamodb(dynamodb_entry):
     """
     Save a user's portfolio and temporary portfolio to a DynamoDB table.
     """
 
-    print("portfolio + username::", portfolio, username)
+    print("dynamodb_entry::", dynamodb_entry)
 
     table_portfolio.put_item(
         Item={
-            'username': username,
-            'portfolio': json.dumps(portfolio),
-            'portfolio_name': 'test1',
-            'notes': 'test1 notes',
+            'UserId': dynamodb_entry["UserId"],
+            'Investments': json.dumps(dynamodb_entry["Investments"]),
+            'PortfolioName': dynamodb_entry["PortfolioName"],
         }
     )
 
-def load_user_portfolio_from_dynamodb(username):
+def load_user_portfolio_from_dynamodb(UserId, PortfolioName):
     """
     Load a user's portfolio from DynamoDB. 
     If the user has a saved portfolio, load it as the temporary portfolio.
     """
     try:
-        response = table_portfolio.get_item(Key={'username': username})
-        print("load user")
+        response = table_portfolio.get_item(Key={'UserId': UserId, 'PortfolioName': PortfolioName})
+        print("Load user")
     except ClientError as e:
         print(e.response['Error']['Message'])
     else:
@@ -500,12 +501,12 @@ def load_user_portfolio_from_dynamodb(username):
         if item is None:
             return None
 
-        portfolio = json.loads(item.get('portfolio', '{}'))
-        temp_portfolio = json.loads(item.get('temp_portfolio', '{}'))
+        Investments = json.loads(item.get('Investments', '{}'))
 
         return {
-            'username': username,
-            'portfolio': portfolio,
+            'UserId': UserId,
+            'Investments': Investments,
+            'PortfolioName': PortfolioName,
         }
 
 ### SCENARIOS - START ###
@@ -514,41 +515,6 @@ import re
 from datetime import datetime
 from dateutil.relativedelta import relativedelta
 import concurrent.futures
-
-# default_portfolio = {
-#     'DLR': {'allocation': 18.58134053},
-#     'SPG': {'allocation': 5.96591771},
-#     'ARE': {'allocation': 5.21638715},
-#     'EQR': {'allocation': 7.01589525},
-#     'NVDA': {'allocation': 7.32163178},
-#     'EQIX': {'allocation': 7.94139182},
-#     'JNJ': {'allocation': 2.48767978},
-#     'VOO': {'allocation': 3.68012278},
-#     'AEP': {'allocation': 1.52550893},
-#     'MSFT': {'allocation': 3.86296522},
-#     'AVB': {'allocation': 1.10375472},
-#     'NEE': {'allocation': 1.76459701},
-#     'META': {'allocation': 6.89370643},
-#     'XLU': {'allocation': 0.52595852},
-#     'GOOGL': {'allocation': 2.48027440},
-#     'IAU': {'allocation': 0.77721259},
-#     'WELL': {'allocation': 0.37203234},
-#     'WY': {'allocation': 0.33976603},
-#     'BA': {'allocation': 1.28836035},
-#     'D': {'allocation': 0.14704975},
-#     'O': {'allocation': 0.10755437},
-#     'GLD': {'allocation': 0.20858496},
-#     'AGG': {'allocation': 0.03544005},
-#     'TLT': {'allocation': 0.59754389},
-#     'AMZN': {'allocation': 0.65378954},
-#     'RTX': {'allocation': 1.78152360},
-#     'AAPL': {'allocation': 3.65843559},
-#     'AMD': {'allocation': 3.81236177},
-#     'TSLA': {'allocation': 2.72006775},
-#     'ETH-USD': {'allocation': 7.12062853},
-#     'DOGE-USD': {'allocation': 0.01251686},
-#     'CASH': {'allocation': 0.00000000},
-# }
 
 default_portfolio = {
     'IJR': {'allocation': 26.2},
@@ -560,6 +526,11 @@ default_portfolio = {
     'IEF': {'allocation': 0.85},
     'LQD': {'allocation': 0.29},
 }
+
+# default_portfolio = {
+#     'QQQ': {'allocation': 50},
+#     'TQQQ': {'allocation': 50},
+# }
 
 print(default_portfolio)
 
@@ -592,8 +563,15 @@ def parse_date(date):
 def fetch_data(portfolio, text):
     events = extract_events_dates(text)
     event_dates = sorted([parse_date(date) for date in events.keys()])
-    start_date = event_dates[0] - relativedelta(months=6)
-    end_date = event_dates[-1] + relativedelta(months=6)
+
+    # Handle the case when no events are found
+    if event_dates:
+        start_date = event_dates[0] - relativedelta(months=6)
+        end_date = event_dates[-1] + relativedelta(months=6)
+    else:
+        # Define arbitrary start and end date, or modify as needed
+        start_date = datetime.today() - relativedelta(years=1)
+        end_date = datetime.today()
 
     tickers = list(portfolio.keys())
     data = {}
@@ -614,7 +592,11 @@ def fetch_data(portfolio, text):
     blended_portfolio = pd.Series(0, index=data_pct_change_cumprod.index)
     for ticker in portfolio:
         if ticker not in bad_tickers:
-            blended_portfolio += data_pct_change_cumprod[ticker].fillna(0) * portfolio[ticker]['allocation'] / 100
+            allocation = portfolio[ticker]['allocation']
+            if allocation is not None:
+                blended_portfolio += data_pct_change_cumprod[ticker].fillna(0) * allocation / 100
+            else:
+                print(f"Warning: Allocation for {ticker} is None.")
 
     blended_portfolio_df = pd.DataFrame(blended_portfolio, columns=['blended_portfolio'])
     blended_portfolio_df['norm_close'] = blended_portfolio_df['blended_portfolio']
@@ -638,6 +620,7 @@ def parse_portfolio_data(text):
 def api_parse_portfolio():
     data = request.json
     username = data.get('username', 'tsm')
+    portfolio_name = data.get('portfolioName', 'Test Portfolio')
 
     gpt_prompt = f"""given uploaded portfolio: {data}"""
 
@@ -649,7 +632,7 @@ def api_parse_portfolio():
             messages=[
                 {
                     "role": "system",
-                    "content": "please parse the portfolio data given the uploaded portfolio. The response must be in a format like this: [{ 'META': {'allocation': 25}, 'AAPL': {'allocation': 25}, }]",
+                    "content": "please parse the portfolio data given the uploaded portfolio. The response must be in a format like this: [{'META': {'allocation': 25}, 'AAPL': {'allocation': 25}, }]",
                 },
                 {
                     "role": "user", 
@@ -663,11 +646,19 @@ def api_parse_portfolio():
         gpt_response_data = parse_portfolio_data(gpt_response)
         print("scenarios:: trianglai_response_data:", gpt_response_data)
 
-        #save portfolio
-        save_user_portfolio_to_dynamodb(gpt_response_data, username)
+        # Create a dictionary for the DynamoDB entry
+        dynamodb_entry = {
+            "UserId": username,
+            "PortfolioName": portfolio_name,
+            "Investments": gpt_response_data
+        }
 
-        # Assume that gpt_response is a dictionary, convert it to JSON and return
-        return jsonify(gpt_response_data), 200
+        #save portfolio
+        print("new feat::: dynamodb_entry:", dynamodb_entry)
+        save_user_portfolio_to_dynamodb(dynamodb_entry)
+
+        # Return the DynamoDB entry as JSON
+        return jsonify(dynamodb_entry), 200
 
     except Exception as e:
         # If there is an error, return a error message and a 500 status
@@ -678,6 +669,19 @@ def api_scenarios():
     data = request.json
     query = data.get('query')
     username = data.get('username', 'tsm')
+    print("Request data:", data)
+    portfolioName = data.get('portfolioName', 'default_portfolio')
+    
+    if portfolioName != 'default_portfolio':
+        loaded_portfolio = load_user_portfolio_from_dynamodb(username, portfolioName)
+        loaded_portfolio = {investment_key: {'allocation': investment_data['allocation']}
+                       for investment in loaded_portfolio['Investments']
+                       for investment_key, investment_data in investment.items()}
+
+        print('loaded db portfolio', loaded_portfolio, 'default', default_portfolio)    
+    else:
+        loaded_portfolio = default_portfolio
+        print('loaded default portfolio')
 
     # received prompt data
     timestamp = datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S")
@@ -705,7 +709,7 @@ def api_scenarios():
     print("scenarios:: trianglai_response:", gpt_response)
     # Use 'gpt_response' instead of 'text' as input for fetch_data function
 
-    data, events = fetch_data(default_portfolio, text=gpt_response)
+    data, events = fetch_data(loaded_portfolio, text=gpt_response)
     print("scenarios:: fetched_data:", data)
 
     # summarize
@@ -744,33 +748,93 @@ def api_scenarios():
 ### SCENARIOS - END ###
 
 ### PORTFOLIO STATE MGMT ###
-def get_user(user_id):
-    table = dynamodb.Table('Users')
-    response = table.get_item(Key={'UserId': user_id})
-    return response['Item']
+def get_portfolio_names(user_id):
 
-def get_portfolio(user_id, portfolio_name):
-    table = dynamodb.Table('Portfolios')
-    response = table.get_item(Key={'UserId': user_id, 'PortfolioName': portfolio_name})
-    return response['Item']
-
-def get_user_portfolios(user_id):
-    table = dynamodb.Table('Portfolios')
-    response = table.query(
-        KeyConditionExpression=boto3.dynamodb.conditions.Key('UserId').eq(user_id)
+    response = table_portfolio.scan(
+        FilterExpression=Attr('UserId').eq(user_id)
     )
-    return response['Items']
+    
+    portfolio_names = [item['PortfolioName'] for item in response['Items']]
+    
+    return portfolio_names
 
-def get_portfolios_by_name(portfolio_name):
-    table = dynamodb.Table('Portfolios')
-    idx_name = 'PortfolioNameIndex'
-    response = table.query(
-        IndexName=idx_name,
-        KeyConditionExpression=boto3.dynamodb.conditions.Key('PortfolioName').eq(portfolio_name)
-    )
-    return response['Items']
+@app.route('/api/portfolios/<user_id>')
+def portfolios(user_id):
+    portfolio_names = get_portfolio_names(user_id)
+    return jsonify(portfolio_names)
+
+@app.route('/api/getPortfolio', methods=['GET'])
+def api_get_portfolio():
+    # Get the userId and portfolioName from the request arguments
+    username = request.args.get('userId')
+    portfolio_name = request.args.get('portfolioName')
+
+    if username is None or portfolio_name is None:
+        return jsonify({"error": "userId and portfolioName are required"}), 400
+
+    try:
+        # Fetch the portfolio from DynamoDB
+        response = table_portfolio.get_item(
+            Key={
+                'UserId': username,
+                'PortfolioName': portfolio_name,
+            }
+        )
+
+        # If the portfolio exists, return it
+        if 'Item' in response:
+            # Create a dictionary for the DynamoDB load
+            dynamodb_load = {
+                "UserId": username,
+                "PortfolioName": portfolio_name,
+                "Investments": response['Item']['Investments']
+            }
+            
+            print("load portfolio::: ", dynamodb_load)
+            return jsonify(dynamodb_load), 200
+        else:
+            return jsonify({"error": "Portfolio not found"}), 404
+
+    except Exception as e:
+        # Log the error message and the stack trace
+        app.logger.error('Server Error: %s', str(e))
+        traceback.print_exc()
+        # If there is an error, return a error message and a 500 status
+        return jsonify({"error": str(e)}), 500
 ### PORTFOLIO STATE MGMT - END ###
 
+### PORTFOLIO UPDATE FETCH ###
+@app.route('/api/portfolioUpdate', methods=['POST'])
+def portfolio_update():
+    data = request.get_json()  # Get data sent in the POST request
+
+    # Get individual data
+    username = data.get('username')
+    uid = data.get('uid')
+    portfolioName = data.get('portfolioName', 'default_portfolio')
+    eventData = data.get('eventData')
+
+    # Print the received data
+    print(f'Username: {username}')
+    print(f'UID: {uid}')
+    print(f'Portfolio Name: {portfolioName}')
+    print(f'Event Data: {eventData}')
+
+    if portfolioName != 'default_portfolio':
+        loaded_portfolio = load_user_portfolio_from_dynamodb(uid, portfolioName)
+        print('loaded db portfolio', loaded_portfolio)    
+    else:
+        loaded_portfolio = default_portfolio
+        print('loaded default portfolio')
+
+    response = {
+        'status': 'success',
+        'message': 'Portfolio updated successfully'
+    }
+
+    return json.dumps(response), 200
+### PORTFOLIO UPDATE FETCH - END ###
+
 if __name__ == "__main__":
-    # app.run(port=5000)
-    app.run(host="0.0.0.0", port=8080)
+    app.run(port=5000)
+    # app.run(host="0.0.0.0", port=8080)
