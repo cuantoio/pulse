@@ -65,7 +65,7 @@ def run_test():
 
 @app.route('/eb')
 def run_eb():
-    return 'eb-live v4'
+    return 'eb-live v4.1'
 
 # Updated function get_user_profile()
 def get_user_profile(username):
@@ -929,39 +929,58 @@ def portfolio_update():
 ### PORTFOLIO UPDATE FETCH - END ###
 
 ### STRIPE WEBHOOKS ###
+# This is your Stripe CLI webhook secret for testing your endpoint locally.
+endpoint_secret = os.getenv('STRIPE_SIGNING_SECRET')
+
 @app.route('/verify-payment', methods=['POST'])
 def verify_payment():
     data = request.json
-    payment_id = data.get('paymentId')
+    payload = data.get('payload')
+    sig_header = request.headers['STRIPE_SIGNATURE']
 
-    print("Stripe verify-payment:: ",data, payment_id)
     try:
-        # Fetch the event from Stripe
-        event = stripe.Event.retrieve(payment_id)
+        event = stripe.Webhook.construct_event(
+            payload, sig_header, endpoint_secret
+        )
+    except ValueError as e:
+        # Invalid payload
+        raise e
+    except stripe.error.SignatureVerificationError as e:
+        # Invalid signature
+        raise e
+    
+    print("Stripe verify-payment:: ", data)
 
-        # Ensure event type is a completed charge
-        if event.type == "charge.succeeded":
-            # Store in DynamoDB
+    try:
+        # Construct the event from the payload (as in the Django example)
+        event = stripe.Event.construct_from(payload, stripe.api_key)
+
+        if event.type == 'payment_intent.succeeded':
+            payment_intent = event.data.object
+            # Store in DynamoDB or any database
             table_payments.put_item(
                 Item={
-                    'paymentId': payment_id,
+                    'paymentId': payment_intent.id,
                     'status': 'succeeded'
                 }
             )
-            return jsonify(success=True), 200
+        elif event.type == 'payment_method.attached':
+            payment_method = event.data.object
+            # Here, you can handle or store data related to the payment_method
+            # For now, we just print the payment method
+            print(payment_method)
         else:
-            # You can also store failed payments if needed
-            table_payments.put_item(
-                Item={
-                    'paymentId': payment_id,                    
-                    'status': 'failed'
-                }
-            )
-            return jsonify(success=False, message="Payment was not successful"), 400
+            print('Unhandled event type {}'.format(event.type))
+            # If you want to store other event types, add the logic here
+
+        return jsonify(success=True), 200
 
     except stripe.error.StripeError as e:
         # Handle exceptions from the Stripe API
         return jsonify(success=False, message=str(e)), 400
+    except ValueError as e:
+        # Handle exceptions related to invalid payload
+        return jsonify(success=False, message="Invalid payload"), 400
     except Exception as e:
         # Handle other unforeseen exceptions
         return jsonify(success=False, message="Internal server error"), 500
