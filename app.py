@@ -65,7 +65,7 @@ def run_test():
 
 @app.route('/eb')
 def run_eb():
-    return 'eb-live v4.1'
+    return 'eb-live v4.2'
 
 # Updated function get_user_profile()
 def get_user_profile(username):
@@ -934,56 +934,41 @@ endpoint_secret = os.getenv('STRIPE_SIGNING_SECRET')
 
 @app.route('/verify-payment', methods=['POST'])
 def verify_payment():
-    data = request.json
-    payload = data.get('payload')
-    sig_header = request.headers['STRIPE_SIGNATURE']
+    payload = request.data.decode('utf-8')
+    sig_header = request.headers.get('STRIPE_SIGNATURE')
 
     try:
         event = stripe.Webhook.construct_event(
             payload, sig_header, endpoint_secret
         )
-    except ValueError as e:
+    except ValueError:
         # Invalid payload
-        raise e
-    except stripe.error.SignatureVerificationError as e:
-        # Invalid signature
-        raise e
-    
-    print("Stripe verify-payment:: ", data)
-
-    try:
-        # Construct the event from the payload (as in the Django example)
-        event = stripe.Event.construct_from(payload, stripe.api_key)
-
-        if event.type == 'payment_intent.succeeded':
-            payment_intent = event.data.object
-            # Store in DynamoDB or any database
-            table_payments.put_item(
-                Item={
-                    'paymentId': payment_intent.id,
-                    'status': 'succeeded'
-                }
-            )
-        elif event.type == 'payment_method.attached':
-            payment_method = event.data.object
-            # Here, you can handle or store data related to the payment_method
-            # For now, we just print the payment method
-            print(payment_method)
-        else:
-            print('Unhandled event type {}'.format(event.type))
-            # If you want to store other event types, add the logic here
-
-        return jsonify(success=True), 200
-
-    except stripe.error.StripeError as e:
-        # Handle exceptions from the Stripe API
-        return jsonify(success=False, message=str(e)), 400
-    except ValueError as e:
-        # Handle exceptions related to invalid payload
         return jsonify(success=False, message="Invalid payload"), 400
-    except Exception as e:
-        # Handle other unforeseen exceptions
-        return jsonify(success=False, message="Internal server error"), 500
+    except stripe.error.SignatureVerificationError:
+        # Invalid signature
+        return jsonify(success=False, message="Invalid Stripe signature"), 400
+    
+    print("Stripe verify-payment:: ", event)
+
+    if event.type == 'payment_intent.succeeded':
+        payment_intent = event.data.object
+        # Store in DynamoDB or any database
+        table_payments.put_item(
+            Item={
+                'paymentId': payment_intent.id,
+                'status': 'succeeded'
+            }
+        )
+        return jsonify(success=True), 200
+    elif event.type == 'payment_method.attached':
+        payment_method = event.data.object
+        # Here, you can handle or store data related to the payment_method
+        print(payment_method)
+        return jsonify(success=True), 200
+    else:
+        print('Unhandled event type {}'.format(event.type))
+        return jsonify(success=False, message=f"Unhandled event type {event.type}"), 400
+
 ### STRIPE WEBHOOKS - END ###
 
 if __name__ == "__main__":
