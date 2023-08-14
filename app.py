@@ -4,6 +4,7 @@ from boto3.dynamodb.conditions import Key, Attr
 from joblib import Parallel, delayed
 from dotenv import load_dotenv
 from scipy.stats import norm
+from prophet import Prophet
 import yfinance as yf
 import traceback
 import boto3
@@ -23,6 +24,7 @@ from redis import Redis
 import pandas as pd
 import numpy as np
 import openai
+import stripe
 import os
 
 app = Flask(__name__)
@@ -32,6 +34,7 @@ load_dotenv()
 
 openai.organization = "org-bHNvimGOVpNGPOLseRrHQTB4"
 openai.api_key = os.getenv("OPENAI_API_KEY")
+stripe.api_key = os.getenv("STRIPE_API_KEY")
 
 # MEMORY_SIZE = 10
 # memory = []
@@ -47,6 +50,7 @@ table = dynamodb.Table(os.getenv("DYNAMODB_TABLE_INPUT_PROMPTS"))
 table_portfolio = dynamodb.Table(os.getenv("DYNAMODB_TABLE_PORTFOLIO"))
 table_user_profiles = dynamodb.Table(os.getenv("DYNAMODB_TABLE_USER_PROFILE"))
 table_chat_history = dynamodb.Table(os.getenv("DYNAMODB_TABLE_CHAT_HISTORY"))
+table_payments = dynamodb.Table(os.getenv("DYNAMODB_TABLE_PAYMENTS")) 
 
 # Updated Redis setup
 try:
@@ -188,13 +192,13 @@ def get_key_allocations(results, weights_record, stock_data):
     max_sharpe_idx = np.argmax(results[2])
     sdp, rp = results[1, max_sharpe_idx], results[0, max_sharpe_idx]
     max_sharpe_allocation = pd.DataFrame(weights_record[max_sharpe_idx], index=stock_data.columns, columns=['allocation'])
-    max_sharpe_allocation.allocation = [round(i * 100, 2) for i in max_sharpe_allocation.allocation]
+    max_sharpe_allocation.allocation = [i * 100 for i in max_sharpe_allocation.allocation]
     max_sharpe_allocation = max_sharpe_allocation.T
 
     min_vol_idx = np.argmin(results[1])
     sdp_min, rp_min = results[1, min_vol_idx], results[0, min_vol_idx]
     min_vol_allocation = pd.DataFrame(weights_record[min_vol_idx], index=stock_data.columns, columns=['allocation'])
-    min_vol_allocation.allocation = [round(i * 100, 2) for i in min_vol_allocation.allocation]
+    min_vol_allocation.allocation = [i * 100 for i in min_vol_allocation.allocation]
     min_vol_allocation = min_vol_allocation.T
 
     return max_sharpe_allocation, min_vol_allocation
@@ -221,32 +225,42 @@ def simulate_portfolios_parallel(num_portfolios, mean_returns, cov_matrix, risk_
 def format_data(data):
     return ' '.join(f'\n{i}. ${ticker} | {info["allocation"]}%' for i, (ticker, info) in enumerate(data.items(), start=1))
 
+def calculate_score(total_allocation, tracking_error, active_share):
+    # Define the weights for each metric
+    total_allocation_weight = 0.33
+    tracking_error_weight = 0.33
+    active_share_weight = 0.33
+
+    # Normalizing the metrics
+    normalized_total_allocation = total_allocation / 100
+    normalized_tracking_error = tracking_error / 100
+    normalized_active_share = active_share / 100
+
+    # Calculating the combined score
+    score = (total_allocation_weight * normalized_total_allocation +
+             tracking_error_weight * normalized_tracking_error +
+             active_share_weight * normalized_active_share)
+
+    return score * 100  # converting the score to percentage
+
 @app.route('/api/efficient_frontier', methods=['POST'])
 def efficient_frontier():
     data = request.json
-    username = data.get('username', 'tsm')
+    username = data.get('username', 'noname')
     prompt = data.get('query', '').lower()
 
     print(f"Data received: {data}")
 
-    prompt_tickers = data.get('tickers', '')
+    prompt_tickers = data.get('tickers', [])
 
+    # You mentioned you commented out the database function.
     # user_profile = load_user_portfolio_from_dynamodb(username)
     user_profile = {}
-    # print("user_profile::",user_profile)
-
-    # Parse tickers from the prompt
-    # prompt_tickers = prompt.split('$')[1].split()    
-    # prompt_tickers = [ticker.upper() for ticker in prompt_tickers]
 
     print(f"Prompt tickers after parsing and conversion: {prompt_tickers}")
 
-    # Create an empty dictionary for the loaded user portfolio
-    loaded_user_portfolio = {}
-
-    for ticker in prompt_tickers:
-        if user_profile is None or ticker not in user_profile:
-            loaded_user_portfolio[ticker] = {"allocation": 0}  # default allocation
+    # Optimized creation of loaded_user_portfolio using dictionary comprehension
+    loaded_user_portfolio = {ticker: {"allocation": 0} for ticker in prompt_tickers if not user_profile or ticker not in user_profile}
 
     print(f"Loaded user portfolio: {loaded_user_portfolio}")
 
@@ -255,18 +269,38 @@ def efficient_frontier():
 
     allocations = [v["allocation"] for v in loaded_user_portfolio.values()]
 
-    stock_data_key = tuple(sorted(tickers))
-
     # Use today's date as the end date and one year ago as the start date
     today = date.today()
     start_date = today - timedelta(days=365)
     end_date = today
 
+    bad_tickers = []
+    stock_data_key = tuple(sorted(tickers))
+    
+    # If data isn't in the cache, download it
     if stock_data_key not in stock_data_cache:
         try:
-            stock_data_cache[stock_data_key] = yf.download(tickers, start=start_date, end=end_date)['Adj Close']
-        except:
-            print(stock_data_key, "failed")
+            stock_data = yf.download(tickers, start=start_date, end=end_date)['Adj Close']
+
+            if stock_data.empty:
+                bad_tickers.extend(tickers)
+            else:
+                # Identify missing columns (bad tickers)
+                fetched_tickers = stock_data.columns.tolist()
+                for ticker in tickers:
+                    if ticker not in fetched_tickers:
+                        bad_tickers.append(ticker)
+                stock_data_cache[stock_data_key] = stock_data
+        except Exception as e:
+            print(f"Failed to download data. Error: {str(e)}")
+            return jsonify({'error': f"Failed to download data. Error: {str(e)}"}), 500
+
+    else:
+        stock_data = stock_data_cache[stock_data_key]
+    
+    print(f"Successfully downloaded tickers: {[ticker for ticker in tickers if ticker not in bad_tickers]}")
+    if bad_tickers:
+        print(f"Bad tickers list: {bad_tickers}")
 
     stock_data = stock_data_cache[stock_data_key]
     daily_returns = stock_data.pct_change()
@@ -305,8 +339,10 @@ def efficient_frontier():
         portfolio_allocation = min_vol_allocation
     else: 
         portfolio_allocation = max_sharpe_allocation
-
+    
     print(f"print portfolio_allocation: {portfolio_allocation.to_dict()}")
+    blended_portfolio = fetch_data(portfolio_allocation.to_dict(), '')
+    print(f"print blended_portfolio:: {blended_portfolio}")
 
     # save portfolio to chat history v1.06
     timestamp = datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S")
@@ -516,105 +552,27 @@ from datetime import datetime
 from dateutil.relativedelta import relativedelta
 import concurrent.futures
 
-default_portfolio = {
-    'IJR': {'allocation': 26.2},
-    'EFA': {'allocation': 25.94},
-    'IJH': {'allocation': 23.83},
-    'VNQ': {'allocation': 14.99},
-    'EEM': {'allocation': 4.09},
-    'SPY': {'allocation': 3.82},
-    'IEF': {'allocation': 0.85},
-    'LQD': {'allocation': 0.29},
-}
-
 # default_portfolio = {
-#     'QQQ': {'allocation': 50},
-#     'TQQQ': {'allocation': 50},
+#     'IJR': {'allocation': 26.2},
+#     'EFA': {'allocation': 25.94},
+#     'IJH': {'allocation': 23.83},
+#     'VNQ': {'allocation': 14.99},
+#     'EEM': {'allocation': 4.09},
+#     'SPY': {'allocation': 3.82},
+#     'IEF': {'allocation': 0.85},
+#     'LQD': {'allocation': 0.29},
 # }
 
-print(default_portfolio)
-
-def extract_events_dates(text):
-    pattern = r"'event': '([^']+)', 'date': '([^']+)'"
-    matches = re.findall(pattern, text)
-    dates = {match[1]: match[0] for match in matches}
-    return dates
-    
-def parse_date(date):
-    if ' ongoing' in date or ' onwards' in date:
-        date = date.split('-')[0].strip()
-        if len(date.split(' ')[0]) == 4:  # it is a year
-            return datetime.strptime(date + "-01-01", "%Y-%m-%d")
-        else:
-            return datetime.strptime(date + "-01", "%Y-%m-%d")
-    else:
-        try:
-            return datetime.strptime(date, "%Y-%m-%d")
-        except ValueError:
-            print(f"Date {date} is not in the expected format 'YYYY-MM-DD'. Trying to correct it.")
-            if len(date) == 7:  # Check if date is in 'YYYY-MM' format
-                date += '-01'
-            try:
-                return datetime.strptime(date, "%Y-%m-%d")
-            except ValueError:
-                print(f"Failed to correct the date {date}.")
-                return None  # Or handle it as appropriate for your use case
-
-def fetch_data(portfolio, text):
-    events = extract_events_dates(text)
-    event_dates = sorted([parse_date(date) for date in events.keys()])
-
-    # Handle the case when no events are found
-    if event_dates:
-        start_date = event_dates[0] - relativedelta(months=6)
-        end_date = event_dates[-1] + relativedelta(months=6)
-    else:
-        # Define arbitrary start and end date, or modify as needed
-        start_date = datetime.today() - relativedelta(years=1)
-        end_date = datetime.today()
-
-    tickers = list(portfolio.keys())
-    data = {}
-    bad_tickers = []
-    
-    for ticker in tickers:
-        try:
-            data[ticker] = yf.download(ticker, start=start_date.strftime('%Y-%m-%d'), end=end_date.strftime('%Y-%m-%d'), interval='1d')['Adj Close']
-        except Exception as exc:
-            print('%r generated an exception: %s' % (ticker, exc))
-            bad_tickers.append(ticker)
-
-    data_pct_change = pd.concat(data, axis=1).pct_change()+1
-    data_pct_change.iloc[0] = 1 
-    data_pct_change_cumprod = data_pct_change.cumprod()
-    data_pct_change_cumprod = (data_pct_change_cumprod - 1)*100
-
-    blended_portfolio = pd.Series(0, index=data_pct_change_cumprod.index)
-    for ticker in portfolio:
-        if ticker not in bad_tickers:
-            allocation = portfolio[ticker]['allocation']
-            if allocation is not None:
-                blended_portfolio += data_pct_change_cumprod[ticker].fillna(0) * allocation / 100
-            else:
-                print(f"Warning: Allocation for {ticker} is None.")
-
-    blended_portfolio_df = pd.DataFrame(blended_portfolio, columns=['blended_portfolio'])
-    blended_portfolio_df['norm_close'] = blended_portfolio_df['blended_portfolio']
-    
-    print(f"Bad tickers: {bad_tickers}")
-    return blended_portfolio_df, events
-
-def parse_portfolio_data(text):
-    # remove comment from the input string
-    text = re.sub(r"//.*", "", text)
-
-    # find the text inside the brackets
-    data_text = re.search(r'\[(.*)\]', text, re.DOTALL).group(1)
-
-    # turn it back into a python list of dictionaries
-    data = ast.literal_eval('[' + data_text + ']')
-    
-    return data
+default_portfolio = {
+  'AAPL': {'allocation': 12.5},
+  'AMZN': {'allocation': 12.5},
+  'BTC-USD': {'allocation': 12.5},
+  'GOOGL': {'allocation': 12.5},
+  'META': {'allocation': 12.5},
+  'MSFT': {'allocation': 12.5},
+  'NVDA': {'allocation': 12.5},
+  'TSLA': {'allocation': 12.5},
+}
 
 @app.route('/api/parsePortfolio', methods=['POST'])
 def api_parse_portfolio():
@@ -664,11 +622,142 @@ def api_parse_portfolio():
         # If there is an error, return a error message and a 500 status
         return jsonify({"error": str(e)}), 500
     
+def extract_events_dates(text):
+    pattern = r"'event': '([^']+)', 'date': '([^']+)'"
+    matches = re.findall(pattern, text)
+    dates = {match[1]: match[0] for match in matches}
+    return dates
+    
+def parse_date(date):
+    if ' ongoing' in date or ' onwards' in date:
+        date = date.split('-')[0].strip()
+        if len(date.split(' ')[0]) == 4:  # it is a year
+            return datetime.strptime(date + "-01-01", "%Y-%m-%d")
+        else:
+            return datetime.strptime(date + "-01", "%Y-%m-%d")
+    else:
+        try:
+            return datetime.strptime(date, "%Y-%m-%d")
+        except ValueError:
+            print(f"Date {date} is not in the expected format 'YYYY-MM-DD'. Trying to correct it.")
+            if len(date) == 7:  # Check if date is in 'YYYY-MM' format
+                date += '-01'
+            try:
+                return datetime.strptime(date, "%Y-%m-%d")
+            except ValueError:
+                print(f"Failed to correct the date {date}.")
+                return None  # Or handle it as appropriate for your use case
+
+# def fetch_data(portfolio, text):
+#     events = extract_events_dates(text)
+#     event_dates = sorted([parse_date(date) for date in events.keys()])
+
+#     # Handle the case when no events are found
+#     if event_dates:
+#         start_date = event_dates[0] - relativedelta(months=6)
+#         end_date = event_dates[-1] + relativedelta(months=6)
+#     else:
+#         # Define arbitrary start and end date, or modify as needed
+#         start_date = datetime.today() - relativedelta(years=1)
+#         end_date = datetime.today()
+
+#     tickers = list(portfolio.keys())
+#     data = {}
+#     bad_tickers = []
+    
+#     for ticker in tickers:
+#         try:
+#             data[ticker] = yf.download(ticker, start=start_date.strftime('%Y-%m-%d'), end=end_date.strftime('%Y-%m-%d'), interval='1d')['Adj Close']
+#         except Exception as exc:
+#             print('%r generated an exception: %s' % (ticker, exc))
+#             bad_tickers.append(ticker)
+
+#     data_pct_change = pd.concat(data, axis=1).pct_change() + 1
+#     data_pct_change.iloc[0] = 1 
+#     data_pct_change_cumprod = data_pct_change.cumprod()
+#     data_pct_change_cumprod = (data_pct_change_cumprod - 1)*100
+
+#     blended_portfolio = pd.Series(0, index=data_pct_change_cumprod.index)
+#     for ticker in portfolio:
+#         if ticker not in bad_tickers:
+#             allocation = portfolio[ticker]['allocation']
+#             if allocation is not None:
+#                 blended_portfolio += data_pct_change_cumprod[ticker].fillna(0) * allocation / 100
+#             else:
+#                 print(f"Warning: Allocation for {ticker} is None.")
+
+#     blended_portfolio_df = pd.DataFrame(blended_portfolio, columns=['blended_portfolio'])
+#     blended_portfolio_df['norm_close'] = blended_portfolio_df['blended_portfolio']
+    
+#     print(f"Bad tickers: {bad_tickers}")
+#     return blended_portfolio_df, events
+
+def fetch_data(portfolio, text):
+    # Extract events and dates
+    if text == '':
+        events = [{'event': '', 'date': '', 'event_sent': 0.0}]
+        start_date = datetime.today() - relativedelta(years=1)
+        end_date = datetime.today()
+    else:
+        events = extract_events_dates(text)
+        event_dates = sorted([parse_date(date) for date in events.keys()])
+
+        # Determine the start and end dates based on event dates, or set default values
+        if event_dates:
+            start_date = event_dates[0] - relativedelta(months=6)
+            end_date = event_dates[-1] + relativedelta(months=6)
+        else:
+            start_date = datetime.today() - relativedelta(years=1)
+            end_date = datetime.today()
+
+    tickers = list(portfolio.keys())
+    data = {}
+    bad_tickers = []
+    
+    for ticker in tickers:
+        try:
+            data[ticker] = yf.download(ticker, start=start_date.strftime('%Y-%m-%d'), end=end_date.strftime('%Y-%m-%d'), interval='1d')['Adj Close']
+        except Exception as exc:
+            print('%r generated an exception: %s' % (ticker, exc))
+            bad_tickers.append(ticker)
+
+    data_pct_change = pd.concat(data, axis=1).pct_change() + 1
+    data_pct_change.iloc[0] = 1 
+    data_pct_change_cumprod = data_pct_change.cumprod()
+    data_pct_change_cumprod = (data_pct_change_cumprod - 1)*100
+
+    blended_portfolio = pd.Series(0, index=data_pct_change_cumprod.index)
+    for ticker in portfolio:
+        if ticker not in bad_tickers:
+            allocation = portfolio[ticker]['allocation']
+            if allocation is not None:
+                blended_portfolio += data_pct_change_cumprod[ticker].fillna(0) * allocation / 100
+            else:
+                print(f"Warning: Allocation for {ticker} is None.")
+
+    blended_portfolio_df = pd.DataFrame(blended_portfolio, columns=['blended_portfolio'])
+    blended_portfolio_df['norm_close'] = blended_portfolio_df['blended_portfolio']
+    
+    print(f"Bad tickers: {bad_tickers}")
+    return blended_portfolio_df, events
+
+def parse_portfolio_data(text):
+    # remove comment from the input string
+    text = re.sub(r"//.*", "", text)
+
+    # find the text inside the brackets
+    data_text = re.search(r'\[(.*)\]', text, re.DOTALL).group(1)
+
+    # turn it back into a python list of dictionaries
+    data = ast.literal_eval('[' + data_text + ']')
+    
+    return data
+
 @app.route('/api/scenarios', methods=['POST'])
 def api_scenarios():
     data = request.json
     query = data.get('query')
-    username = data.get('username', 'tsm')
+    username = data.get('username', 'default_user')
     print("Request data:", data)
     portfolioName = data.get('portfolioName', 'default_portfolio')
     
@@ -681,7 +770,7 @@ def api_scenarios():
         print('loaded db portfolio', loaded_portfolio, 'default', default_portfolio)    
     else:
         loaded_portfolio = default_portfolio
-        print('loaded default portfolio')
+        print('loaded default portfolio', loaded_portfolio)
 
     # received prompt data
     timestamp = datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S")
@@ -691,12 +780,12 @@ def api_scenarios():
     print("scenarios:: gpt_prompt:", gpt_prompt)
 
     response = openai.ChatCompletion.create(
-        model="gpt-3.5-turbo",
-        # model="gpt-4",
+        # model="gpt-3.5-turbo",
+        model="gpt-4",
         messages=[
             {
                 "role": "system",
-                "content": "please list the major market impacting events given the users' query along with a detailed date including year-month-day. response must be in a dictionary format like so: [{'event': 'event 1', 'date': '2020-02-12'}, {'event': 'event 2', 'date': '2021-12-31'}]",
+                "content": "please list the major market impacting events given the users' query along with a detailed date including year-month-day. response must be in a dictionary format like so: [{'event': 'event 1', 'date': '2020-02-12', event_sent: 0.88'}, {'event': 'event 2', 'date': '2021-12-31', event_sent: 0.28}]",
             },
             {
                 "role": "user", 
@@ -746,6 +835,10 @@ def api_scenarios():
     return jsonify({'trianglai_response': gpt_response_story, 'username': username, 'data': data_json, 'events': events})
 
 ### SCENARIOS - END ###
+
+### FORESIGHT - START ###
+
+### FORESIGHT - END ###
 
 ### PORTFOLIO STATE MGMT ###
 def get_portfolio_names(user_id):
@@ -835,6 +928,45 @@ def portfolio_update():
     return json.dumps(response), 200
 ### PORTFOLIO UPDATE FETCH - END ###
 
+### STRIPE WEBHOOKS ###
+@app.route('/verify-payment', methods=['POST'])
+def verify_payment():
+    data = request.json
+    payment_id = data.get('paymentId')
+
+    print("Stripe verify-payment:: ",data, payment_id)
+    try:
+        # Fetch the event from Stripe
+        event = stripe.Event.retrieve(payment_id)
+
+        # Ensure event type is a completed charge
+        if event.type == "charge.succeeded":
+            # Store in DynamoDB
+            table_payments.put_item(
+                Item={
+                    'paymentId': payment_id,
+                    'status': 'succeeded'
+                }
+            )
+            return jsonify(success=True), 200
+        else:
+            # You can also store failed payments if needed
+            table_payments.put_item(
+                Item={
+                    'paymentId': payment_id,                    
+                    'status': 'failed'
+                }
+            )
+            return jsonify(success=False, message="Payment was not successful"), 400
+
+    except stripe.error.StripeError as e:
+        # Handle exceptions from the Stripe API
+        return jsonify(success=False, message=str(e)), 400
+    except Exception as e:
+        # Handle other unforeseen exceptions
+        return jsonify(success=False, message="Internal server error"), 500
+### STRIPE WEBHOOKS - END ###
+
 if __name__ == "__main__":
-    app.run(port=5000)
-    # app.run(host="0.0.0.0", port=8080)
+    # app.run(port=5000)
+    app.run(host="0.0.0.0", port=8080)
