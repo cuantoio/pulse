@@ -7,10 +7,10 @@ aws ecr get-login-password --region us-west-2 | docker login --username AWS --pa
 docker build -t pulse-backend .
 
 # Tag Docker Image
-docker tag pulse-backend:3.0 260939427961.dkr.ecr.us-west-2.amazonaws.com/pulse-backend:3.0
+docker tag pulse-backend:4.0 260939427961.dkr.ecr.us-west-2.amazonaws.com/pulse-backend:4.0
 
 # Push Docker Image to ECR
-docker push 260939427961.dkr.ecr.us-west-2.amazonaws.com/pulse-backend:3.0
+docker push 260939427961.dkr.ecr.us-west-2.amazonaws.com/pulse-backend:4.0
 
 # Git operations
 git init
