@@ -938,21 +938,17 @@ def verify_payment():
     sig_header = request.headers.get('STRIPE_SIGNATURE')
 
     try:
-        event = stripe.Webhook.construct_event(
-            payload, sig_header, endpoint_secret
-        )
-    except ValueError:
-        # Invalid payload
+        event = stripe.Webhook.construct_event(payload, sig_header, endpoint_secret)
+    except ValueError as e:
+        print("Error:", e)
         return jsonify(success=False, message="Invalid payload"), 400
-    except stripe.error.SignatureVerificationError:
-        # Invalid signature
+    except stripe.error.SignatureVerificationError as e:
+        print("Error:", e)
         return jsonify(success=False, message="Invalid Stripe signature"), 400
-    
-    print("Stripe verify-payment:: ", event)
 
     if event.type == 'payment_intent.succeeded':
         payment_intent = event.data.object
-        # Store in DynamoDB or any database
+        # Store in your database
         table_payments.put_item(
             Item={
                 'paymentId': payment_intent.id,
@@ -960,15 +956,15 @@ def verify_payment():
             }
         )
         return jsonify(success=True), 200
+
     elif event.type == 'payment_method.attached':
         payment_method = event.data.object
-        # Here, you can handle or store data related to the payment_method
+        # Handle or store related data
         print(payment_method)
         return jsonify(success=True), 200
-    else:
-        print('Unhandled event type {}'.format(event.type))
-        return jsonify(success=False, message=f"Unhandled event type {event.type}"), 400
 
+    print('Unhandled event type:', event.type)
+    return jsonify(success=False, message=f"Unhandled event type {event.type}"), 400
 ### STRIPE WEBHOOKS - END ###
 
 if __name__ == "__main__":
