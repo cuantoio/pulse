@@ -65,7 +65,7 @@ def run_test():
 
 @app.route('/eb')
 def run_eb():
-    return 'eb-live v4.6'
+    return 'eb-live v4.7'
 
 # Updated function get_user_profile()
 def get_user_profile(username):
@@ -943,23 +943,29 @@ STRIPE_MONTHLY_URL = os.getenv('STRIPE_MONTHLY_URL')
 @app.route('/get-stripe-url', methods=['GET'])
 def get_stripe_url():
     plan_type = request.args.get('plan')
+    print(f"Received request for Stripe URL of {plan_type} plan.")
 
     if plan_type == "annual":
         stripe_url = STRIPE_ANNUAL_URL
     elif plan_type == "monthly":
         stripe_url = STRIPE_MONTHLY_URL
     else:
-        return jsonify({"error": "Invalid plan type"}), 400
+        message = "Invalid plan type"
+        print(message)
+        return jsonify({"error": message}), 400
 
+    print(f"Sending Stripe URL for {plan_type} plan.")
     return jsonify({"stripeURL": stripe_url})
 
 @app.route('/payment-endpoint', methods=['POST'])
 def process_payment():
     data = request.get_json()
     token = data.get("token")
-
+    
     if not token:
-        return jsonify({"success": False, "message": "Token is missing."}), 400
+        message = "Token is missing."
+        print(message)
+        return jsonify({"success": False, "message": message}), 400
 
     current_time = datetime.utcnow().isoformat()
     response = table_payments.put_item(
@@ -969,12 +975,14 @@ def process_payment():
         }
     )
 
-    print("process_payment response::",response)
+    print("process_payment response:", response)
 
     if response['ResponseMetadata']['HTTPStatusCode'] == 200:
         return jsonify({"success": True})
     else:
-        return jsonify({"success": False, "message": "Failed to save payment data."}), 500
+        message = "Failed to save payment data."
+        print(message)
+        return jsonify({"success": False, "message": message}), 500
 
 # Function to process stripe webhook events (this is important for more robust handling of payments)
 @app.route('/stripe-webhook', methods=['POST'])
@@ -1023,5 +1031,5 @@ def stripe_webhook():
 ### STRIPE WEBHOOKS - END ###
 
 if __name__ == "__main__":
-    # app.run(port=5000)
-    app.run(host="0.0.0.0", port=8080)
+    app.run(port=5000)
+    # app.run(host="0.0.0.0", port=8080)
