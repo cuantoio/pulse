@@ -928,56 +928,98 @@ def portfolio_update():
     return json.dumps(response), 200
 ### PORTFOLIO UPDATE FETCH - END ###
 
+@app.route('/log-all', methods=['POST'])
+def log_all_requests():
+    print(request.data)
+    return jsonify({"message": "Request logged."}), 200
+
 ### STRIPE WEBHOOKS ###
 # This is your Stripe CLI webhook secret for testing your endpoint locally.
 endpoint_secret = os.getenv('STRIPE_SIGNING_SECRET')
+STRIPE_ANNUAL_URL = os.getenv('STRIPE_ANNUAL_URL')
+STRIPE_MONTHLY_URL = os.getenv('STRIPE_MONTHLY_URL')
 
+# Endpoint to get stripe URL for a specific plan
+@app.route('/get-stripe-url', methods=['GET'])
+def get_stripe_url():
+    plan_type = request.args.get('plan')
+
+    if plan_type == "annual":
+        stripe_url = STRIPE_ANNUAL_URL
+    elif plan_type == "monthly":
+        stripe_url = STRIPE_MONTHLY_URL
+    else:
+        return jsonify({"error": "Invalid plan type"}), 400
+
+    return jsonify({"stripeURL": stripe_url})
+
+@app.route('/payment-endpoint', methods=['POST'])
+def process_payment():
+    data = request.get_json()
+    token = data.get("token")
+
+    if not token:
+        return jsonify({"success": False, "message": "Token is missing."}), 400
+
+    current_time = datetime.utcnow().isoformat()
+    response = table_payments.put_item(
+        Item={
+            'paymentId': token,
+            'timestamp': current_time,            
+        }
+    )
+
+    print("process_payment response::",response)
+
+    if response['ResponseMetadata']['HTTPStatusCode'] == 200:
+        return jsonify({"success": True})
+    else:
+        return jsonify({"success": False, "message": "Failed to save payment data."}), 500
+
+# Function to process stripe webhook events (this is important for more robust handling of payments)
 @app.route('/stripe-webhook', methods=['POST'])
 def stripe_webhook():
-    payload = request.data.decode('utf-8')
-    sig_header = request.headers.get('STRIPE_SIGNATURE')
+    print("Received webhook request:", request.data)
+    payload = request.data
+    sig_header = request.headers.get('stripe-signature')
 
     try:
-        event = stripe.Webhook.construct_event(payload, sig_header, endpoint_secret)
-    except ValueError as e:
-        print("Error:", e)
-        return jsonify(success=False, message="Invalid payload"), 400
-    except stripe.error.SignatureVerificationError as e:
-        print("Error:", e)
-        return jsonify(success=False, message="Invalid Stripe signature"), 400
-
-    if event.type == 'payment_intent.succeeded':
-        payment_intent = event.data.object
-        # Store in your database
-        table_payments.put_item(
-            Item={
-                'paymentId': payment_intent.id,
-                'status': 'succeeded'
-            }
+        event = stripe.Webhook.construct_event(
+            payload, sig_header, endpoint_secret
         )
-        return jsonify(success=True), 200
 
-    elif event.type == 'payment_method.attached':
-        payment_method = event.data.object
-        # Handle or store related data
-        print(payment_method)
-        return jsonify(success=True), 200
+        if event.type == 'payment_intent.succeeded':
+            payment_intent = event.data.object
+            print('Payment succeeded:', payment_intent.id)
 
-    print('Unhandled event type:', event.type)
-    return jsonify(success=False, message=f"Unhandled event type {event.type}"), 400
+            # Extracting the required details from the event
+            event_status = payment_intent.status  # Get the status of the payment intent
+            event_id = payment_intent.id  # Get the ID of the payment intent
+            event_email = payment_intent.receipt_email  # Get the email used, if available
 
-@app.route('/verify-payment', methods=['POST'])
-def verify_payment():
-    data = request.json
-    payment_id = data.get("payload")
+            current_time = datetime.utcnow().isoformat()
+            table_payments.put_item(
+                Item={
+                    'paymentId': event_id,
+                    'timestamp': current_time,
+                    'payment_data': 'Your_Payment_Data_Here',
+                    'event_status': event_status,
+                    'event_email': event_email if event_email else "Email not provided"
+                }
+            )
+            
+            print("process_payment response::",
+                'paymentId', event_id,
+                'timestamp', current_time,
+                'payment_data', 'Your_Payment_Data_Here',
+                'event_status', event_status,
+                'event_email', event_email if event_email else "Email not provided")
 
-    if not payment_id:
-        return jsonify(success=False, message="Missing payment_id"), 400
-    
-    # Here, fetch the payment data from Stripe or your database based on payment_id
-    # and respond accordingly. (You can expand this section according to your needs)
+    except Exception as e:
+        print("Error processing webhook:", e)
+        return jsonify({"error": "Webhook processing failed."}), 400
 
-    return jsonify(success=True, message="Payment verified"), 200
+    return jsonify({"message": "Webhook processed."})
 ### STRIPE WEBHOOKS - END ###
 
 if __name__ == "__main__":
