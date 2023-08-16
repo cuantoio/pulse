@@ -932,8 +932,8 @@ def portfolio_update():
 # This is your Stripe CLI webhook secret for testing your endpoint locally.
 endpoint_secret = os.getenv('STRIPE_SIGNING_SECRET')
 
-@app.route('/verify-payment', methods=['POST'])
-def verify_payment():
+@app.route('/stripe-webhook', methods=['POST'])
+def stripe_webhook():
     payload = request.data.decode('utf-8')
     sig_header = request.headers.get('STRIPE_SIGNATURE')
 
@@ -965,6 +965,19 @@ def verify_payment():
 
     print('Unhandled event type:', event.type)
     return jsonify(success=False, message=f"Unhandled event type {event.type}"), 400
+
+@app.route('/verify-payment', methods=['POST'])
+def verify_payment():
+    data = request.json
+    payment_id = data.get("payload")
+
+    if not payment_id:
+        return jsonify(success=False, message="Missing payment_id"), 400
+    
+    # Here, fetch the payment data from Stripe or your database based on payment_id
+    # and respond accordingly. (You can expand this section according to your needs)
+
+    return jsonify(success=True, message="Payment verified"), 200
 ### STRIPE WEBHOOKS - END ###
 
 if __name__ == "__main__":
