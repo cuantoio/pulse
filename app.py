@@ -65,7 +65,7 @@ def run_test():
 
 @app.route('/eb')
 def run_eb():
-    return 'eb-live v4.8'
+    return 'eb-live v4.9.1'
 
 # Updated function get_user_profile()
 def get_user_profile(username):
@@ -957,29 +957,28 @@ def create_checkout_session():
             'quantity': 1,
         }],
         mode='subscription',
-        success_url=YOUR_DOMAIN + '/scenarios',
+        success_url=YOUR_DOMAIN + '/scenarios',  # redirect to scenarios page on success
         cancel_url=YOUR_DOMAIN + '/payment-cancel',
     )
 
-    print(session)
+    print("session::",session)
     
+    # Process payment
     data = {'session_id': session.id}
-    process_payment_initial(data)
+    process_payment(data)
 
-    print("request.headers::", request.headers)
+    print("request.headers::",request.headers)
+
+    # Process Stripe webhook events
+    payload = request.data
+    sig_header = request.headers.get('stripe-signature')
+    stripe_webhook(payload, sig_header)
 
     return jsonify({"session_url": session.url})
 
-@app.route('/stripe-webhook', methods=['POST'])
-def stripe_webhook_endpoint():
-    payload = request.data
-    sig_header = request.headers.get('stripe-signature')
-    response = stripe_webhook(payload, sig_header)
-
-    return response
-
-def process_payment_initial(data):
+def process_payment(data):
     session_id = data.get("session_id")
+    paymentId = session_id  # Use session_id as paymentId
 
     if not session_id:
         message = "Session ID is missing."
@@ -990,10 +989,9 @@ def process_payment_initial(data):
     response = table_payments.put_item(
         Item={
             'session_type': 'process_payment',
-            'session_id': session_id,
-            'paymentId': session_id,
-            'timestamp': current_time,
-            'event_status': 'pending'
+            'session_id': session_id,  # use session ID as payment ID
+            'paymentId': paymentId,
+            'timestamp': current_time,            
         }
     )
 
@@ -1012,19 +1010,16 @@ def stripe_webhook(payload, sig_header):
 
             event_status = payment_intent.status  
             event_id = payment_intent.id  
-            event_email = 'test@test.io'  
+            event_email = payment_intent.receipt_email  
 
             current_time = datetime.utcnow().isoformat()
-
-            # Update the DynamoDB entry for the successful payment
-            table_payments.update_item(
-                Key={'paymentId': event_id},
-                UpdateExpression="SET event_status=:s, event_email=:e, timestamp=:t, payment_data=:pd",
-                ExpressionAttributeValues={
-                    ':s': event_status,
-                    ':e': event_email,
-                    ':t': current_time,
-                    ':pd': 'Your_Payment_Data_Here'
+            table_payments.put_item(
+                Item={
+                    'paymentId': event_id,
+                    'timestamp': current_time,
+                    'payment_data': 'Your_Payment_Data_Here',
+                    'event_status': event_status,
+                    'event_email': event_email if event_email else "Email not provided"
                 }
             )
             
@@ -1033,7 +1028,7 @@ def stripe_webhook(payload, sig_header):
                 'timestamp', current_time,
                 'payment_data', 'Your_Payment_Data_Here',
                 'event_status', event_status,
-                'event_email', event_email)
+                'event_email', event_email if event_email else "Email not provided")
 
     except Exception as e:
         print("Error processing webhook:", e)
