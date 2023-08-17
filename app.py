@@ -65,7 +65,7 @@ def run_test():
 
 @app.route('/eb')
 def run_eb():
-    return 'eb-live v4.7'
+    return 'eb-live v4.8'
 
 # Updated function get_user_profile()
 def get_user_profile(username):
@@ -421,8 +421,8 @@ def api_combined_summary():
     gpt_prompt = f"""given this query: {query}"""
     
     response = openai.ChatCompletion.create(
-        # model="gpt-3.5-turbo",
-        model="gpt-4",
+        model="gpt-3.5-turbo",
+        # model="gpt-4",
         messages=[
             {
                 "role": "system",
@@ -780,8 +780,8 @@ def api_scenarios():
     print("scenarios:: gpt_prompt:", gpt_prompt)
 
     response = openai.ChatCompletion.create(
-        # model="gpt-3.5-turbo",
-        model="gpt-4",
+        model="gpt-3.5-turbo",
+        # model="gpt-4",
         messages=[
             {
                 "role": "system",
@@ -936,61 +936,71 @@ def log_all_requests():
 ### STRIPE WEBHOOKS ###
 # This is your Stripe CLI webhook secret for testing your endpoint locally.
 endpoint_secret = os.getenv('STRIPE_SIGNING_SECRET')
-STRIPE_ANNUAL_URL = os.getenv('STRIPE_ANNUAL_URL')
-STRIPE_MONTHLY_URL = os.getenv('STRIPE_MONTHLY_URL')
+YOUR_DOMAIN = "https://cuanto.io"  # Replace with your website domain
 
-# Endpoint to get stripe URL for a specific plan
-@app.route('/get-stripe-url', methods=['GET'])
-def get_stripe_url():
-    plan_type = request.args.get('plan')
-    print(f"Received request for Stripe URL of {plan_type} plan.")
-
-    if plan_type == "annual":
-        stripe_url = STRIPE_ANNUAL_URL
-    elif plan_type == "monthly":
-        stripe_url = STRIPE_MONTHLY_URL
-    else:
-        message = "Invalid plan type"
-        print(message)
-        return jsonify({"error": message}), 400
-
-    print(f"Sending Stripe URL for {plan_type} plan.")
-    return jsonify({"stripeURL": stripe_url})
-
-@app.route('/payment-endpoint', methods=['POST'])
-def process_payment():
-    data = request.get_json()
-    token = data.get("token")
+@app.route('/create-checkout-session', methods=['POST'])
+def create_checkout_session():
+    plan_type = request.json.get('plan')
     
-    if not token:
-        message = "Token is missing."
+    if plan_type not in ['annual', 'monthly']:
+        return jsonify({"error": "Invalid plan type"}), 400
+
+    product_price = {
+        'annual': 'price_1NeKGSBhBxXSh10sptHpz205',
+        'monthly': 'price_1Nfo98BhBxXSh10sYoR2juX0'
+    }
+
+    session = stripe.checkout.Session.create(
+        payment_method_types=['card'],
+        line_items=[{
+            'price': product_price[plan_type],
+            'quantity': 1,
+        }],
+        mode='subscription',
+        success_url=YOUR_DOMAIN + '/scenarios',
+        cancel_url=YOUR_DOMAIN + '/payment-cancel',
+    )
+
+    print(session)
+    
+    data = {'session_id': session.id}
+    process_payment_initial(data)
+
+    print("request.headers::", request.headers)
+
+    return jsonify({"session_url": session.url})
+
+@app.route('/stripe-webhook', methods=['POST'])
+def stripe_webhook_endpoint():
+    payload = request.data
+    sig_header = request.headers.get('stripe-signature')
+    response = stripe_webhook(payload, sig_header)
+
+    return response
+
+def process_payment_initial(data):
+    session_id = data.get("session_id")
+
+    if not session_id:
+        message = "Session ID is missing."
         print(message)
-        return jsonify({"success": False, "message": message}), 400
+        return
 
     current_time = datetime.utcnow().isoformat()
     response = table_payments.put_item(
         Item={
-            'paymentId': token,
-            'timestamp': current_time,            
+            'session_type': 'process_payment',
+            'session_id': session_id,
+            'paymentId': session_id,
+            'timestamp': current_time,
+            'event_status': 'pending'
         }
     )
 
     print("process_payment response:", response)
+    return response
 
-    if response['ResponseMetadata']['HTTPStatusCode'] == 200:
-        return jsonify({"success": True})
-    else:
-        message = "Failed to save payment data."
-        print(message)
-        return jsonify({"success": False, "message": message}), 500
-
-# Function to process stripe webhook events (this is important for more robust handling of payments)
-@app.route('/stripe-webhook', methods=['POST'])
-def stripe_webhook():
-    print("Received webhook request:", request.data)
-    payload = request.data
-    sig_header = request.headers.get('stripe-signature')
-
+def stripe_webhook(payload, sig_header):
     try:
         event = stripe.Webhook.construct_event(
             payload, sig_header, endpoint_secret
@@ -1000,34 +1010,35 @@ def stripe_webhook():
             payment_intent = event.data.object
             print('Payment succeeded:', payment_intent.id)
 
-            # Extracting the required details from the event
-            event_status = payment_intent.status  # Get the status of the payment intent
-            event_id = payment_intent.id  # Get the ID of the payment intent
-            event_email = payment_intent.receipt_email  # Get the email used, if available
+            event_status = payment_intent.status  
+            event_id = payment_intent.id  
+            event_email = 'test@test.io'  
 
             current_time = datetime.utcnow().isoformat()
-            table_payments.put_item(
-                Item={
-                    'paymentId': event_id,
-                    'timestamp': current_time,
-                    'payment_data': 'Your_Payment_Data_Here',
-                    'event_status': event_status,
-                    'event_email': event_email if event_email else "Email not provided"
+
+            # Update the DynamoDB entry for the successful payment
+            table_payments.update_item(
+                Key={'paymentId': event_id},
+                UpdateExpression="SET event_status=:s, event_email=:e, timestamp=:t, payment_data=:pd",
+                ExpressionAttributeValues={
+                    ':s': event_status,
+                    ':e': event_email,
+                    ':t': current_time,
+                    ':pd': 'Your_Payment_Data_Here'
                 }
             )
             
-            print("process_payment response::",
+            print("stripe_webhook response:",
                 'paymentId', event_id,
                 'timestamp', current_time,
                 'payment_data', 'Your_Payment_Data_Here',
                 'event_status', event_status,
-                'event_email', event_email if event_email else "Email not provided")
+                'event_email', event_email)
 
     except Exception as e:
         print("Error processing webhook:", e)
-        return jsonify({"error": "Webhook processing failed."}), 400
 
-    return jsonify({"message": "Webhook processed."})
+    return {"message": "Webhook processed."}
 ### STRIPE WEBHOOKS - END ###
 
 if __name__ == "__main__":
