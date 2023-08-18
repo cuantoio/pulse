@@ -65,7 +65,7 @@ def run_test():
 
 @app.route('/eb')
 def run_eb():
-    return 'eb-live v4.9.1'
+    return 'eb-live v4.7'
 
 # Updated function get_user_profile()
 def get_user_profile(username):
@@ -933,10 +933,10 @@ def log_all_requests():
     print(request.data)
     return jsonify({"message": "Request logged."}), 200
 
-### STRIPE WEBHOOKS ###
+### STRIPE SESSION ###
 # This is your Stripe CLI webhook secret for testing your endpoint locally.
-endpoint_secret = os.getenv('STRIPE_SIGNING_SECRET')
-YOUR_DOMAIN = "https://cuanto.io"  # Replace with your website domain
+endpoint_secret = os.getenv('STRIPE_WEBHOOK_SECRET')
+YOUR_DOMAIN = "http://localhost:3000" #"https://cuanto.io"  # Replace with your website domain
 
 @app.route('/create-checkout-session', methods=['POST'])
 def create_checkout_session():
@@ -957,29 +957,73 @@ def create_checkout_session():
             'quantity': 1,
         }],
         mode='subscription',
-        success_url=YOUR_DOMAIN + '/scenarios',  # redirect to scenarios page on success
-        cancel_url=YOUR_DOMAIN + '/payment-cancel',
+        success_url=YOUR_DOMAIN + "/scenarios?session_id={CHECKOUT_SESSION_ID}",
+        cancel_url=YOUR_DOMAIN + "/cancel",
     )
 
-    print("session::",session)
-    
+    print(f"Created stripe checkout session for plan: {plan_type}. Session ID: {session.id}")
+
     # Process payment
     data = {'session_id': session.id}
     process_payment(data)
 
-    print("request.headers::",request.headers)
-
-    # Process Stripe webhook events
-    payload = request.data
-    sig_header = request.headers.get('stripe-signature')
-    stripe_webhook(payload, sig_header)
-
     return jsonify({"session_url": session.url})
+
+# @app.route('/payment-endpoint', methods=['POST'])
+# def handle_payment_confirmation():
+#     session_id = request.json.get('sessionId')
+#     return jsonify({"success": True, "message": "Payment confirmed!"})
+
+@app.route('/payment-endpoint', methods=['POST'])
+def handle_payment_confirmation():
+    session_id = request.json['sessionData'].get('id')
+    userId = request.json.get('userId')
+    userEmail = request.json.get('userEmail')
+
+    if not session_id:
+        return jsonify({"success": False, "message": "No sessionId provided!"})
+
+    try:
+        # Fetch the checkout session
+        session = stripe.checkout.Session.retrieve(session_id)
+        print("ISSUE 9:: session::", session)
+        print("ISSUE 9:: good 1")
+        # Insert into DynamoDB
+        response = table_payments.put_item(
+            Item={
+                'userId': userId,
+                'userEmail': userEmail,
+                'paymentId': session.invoice,
+                'timestamp': str(session.created),
+                'amountTotal': session.amount_total,
+                'currency': session.currency,
+                'customerId': session.customer,
+                'email': session.customer_details['email'],
+                'event_status': session.status,  # or session.status based on what's appropriate
+                'invoiceId': session.invoice,
+                'paymentStatus': session.payment_status,
+                'session_id': session.id,
+                'session_type': session.object,
+                'subscriptionId': session.subscription
+            }
+        )
+
+        print("ISSUE 9:: good 2")
+        # You can check the response, if needed, for additional verification
+        
+        return jsonify({
+            "success": True,
+            "message": "Payment confirmed and data stored!"
+        })
+
+    except stripe.error.StripeError as e:
+        return jsonify({"success": False, "message": f"Stripe error: {str(e)}"})
+    except Exception as e:  # Catching DynamoDB related errors
+        return jsonify({"success": False, "message": f"Database error: {str(e)}"})
 
 def process_payment(data):
     session_id = data.get("session_id")
-    paymentId = session_id  # Use session_id as paymentId
-
+    paymentId = session_id
     if not session_id:
         message = "Session ID is missing."
         print(message)
@@ -989,53 +1033,37 @@ def process_payment(data):
     response = table_payments.put_item(
         Item={
             'session_type': 'process_payment',
-            'session_id': session_id,  # use session ID as payment ID
+            'session_id': session_id,
             'paymentId': paymentId,
             'timestamp': current_time,            
         }
     )
-
     print("process_payment response:", response)
     return response
+### STRIPE SESSION - END ###
 
-def stripe_webhook(payload, sig_header):
-    try:
-        event = stripe.Webhook.construct_event(
-            payload, sig_header, endpoint_secret
-        )
+@app.route('/check-isPremiumUser', methods=['POST'])
+def check_is_premium_user():
+    user_id = request.json.get('userId')
+    user_email = request.json.get('userEmail')
 
-        if event.type == 'payment_intent.succeeded':
-            payment_intent = event.data.object
-            print('Payment succeeded:', payment_intent.id)
+    # Fetch payment info from DynamoDB
+    response = table_payments.scan(
+        FilterExpression=(boto3.dynamodb.conditions.Attr('userId').eq(user_id) & 
+                        boto3.dynamodb.conditions.Attr('userEmail').eq(user_email) &
+                        boto3.dynamodb.conditions.Attr('paymentStatus').eq('paid') &
+                        boto3.dynamodb.conditions.Attr('event_status').eq('complete'))
+    )
 
-            event_status = payment_intent.status  
-            event_id = payment_intent.id  
-            event_email = payment_intent.receipt_email  
+    userItems = response.get('Items')
 
-            current_time = datetime.utcnow().isoformat()
-            table_payments.put_item(
-                Item={
-                    'paymentId': event_id,
-                    'timestamp': current_time,
-                    'payment_data': 'Your_Payment_Data_Here',
-                    'event_status': event_status,
-                    'event_email': event_email if event_email else "Email not provided"
-                }
-            )
-            
-            print("stripe_webhook response:",
-                'paymentId', event_id,
-                'timestamp', current_time,
-                'payment_data', 'Your_Payment_Data_Here',
-                'event_status', event_status,
-                'event_email', event_email if event_email else "Email not provided")
+    # Loop through the user items and check if any item matches the criteria
+    for item in userItems:
+        if item['paymentStatus'] == 'paid' and item['event_status'] == 'complete':
+            return jsonify({"isPremiumUser": True})
 
-    except Exception as e:
-        print("Error processing webhook:", e)
-
-    return {"message": "Webhook processed."}
-### STRIPE WEBHOOKS - END ###
-
+    return jsonify({"isPremiumUser": False})
+    
 if __name__ == "__main__":
-    # app.run(port=5000)
-    app.run(host="0.0.0.0", port=8080)
+    app.run(port=5000)
+    # app.run(host="0.0.0.0", port=8080)
