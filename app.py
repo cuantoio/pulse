@@ -65,7 +65,7 @@ def run_test():
 
 @app.route('/eb')
 def run_eb():
-    return 'eb-live v4.7'
+    return 'eb-live v5.0.0'
 
 # Updated function get_user_profile()
 def get_user_profile(username):
@@ -1063,7 +1063,7 @@ def check_is_premium_user():
             return jsonify({"isPremiumUser": True})
 
     return jsonify({"isPremiumUser": False})
-    
+
 if __name__ == "__main__":
-    app.run(port=5000)
-    # app.run(host="0.0.0.0", port=8080)
+    # app.run(port=5000)
+    app.run(host="0.0.0.0", port=8080)
