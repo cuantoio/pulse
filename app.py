@@ -65,7 +65,7 @@ def run_test():
 
 @app.route('/eb')
 def run_eb():
-    return 'eb-live v5.0.1'
+    return 'eb-live v5.0.2'
 
 # Updated function get_user_profile()
 def get_user_profile(username):
@@ -936,7 +936,7 @@ def log_all_requests():
 ### STRIPE SESSION ###
 # This is your Stripe CLI webhook secret for testing your endpoint locally.
 endpoint_secret = os.getenv('STRIPE_WEBHOOK_SECRET')
-YOUR_DOMAIN = "http://localhost:3000" #"https://cuanto.io"  # Replace with your website domain
+YOUR_DOMAIN = "https://cuanto.io"  # "http://localhost:3000" #Replace with your website domain
 
 @app.route('/create-checkout-session', methods=['POST'])
 def create_checkout_session():
