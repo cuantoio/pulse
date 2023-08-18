@@ -65,7 +65,7 @@ def run_test():
 
 @app.route('/eb')
 def run_eb():
-    return 'eb-live v5.0.0'
+    return 'eb-live v5.0.1'
 
 # Updated function get_user_profile()
 def get_user_profile(username):
@@ -947,7 +947,7 @@ def create_checkout_session():
 
     product_price = {
         'annual': 'price_1NeKGSBhBxXSh10sptHpz205',
-        'monthly': 'price_1Nfo98BhBxXSh10sYoR2juX0'
+        'monthly': 'price_1NgMnFBhBxXSh10sQbjxbAb6'
     }
 
     session = stripe.checkout.Session.create(
@@ -1065,5 +1065,5 @@ def check_is_premium_user():
     return jsonify({"isPremiumUser": False})
 
 if __name__ == "__main__":
-    # app.run(port=5000)
-    app.run(host="0.0.0.0", port=8080)
+    app.run(port=5000)
+    # app.run(host="0.0.0.0", port=8080)
