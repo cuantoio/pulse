@@ -370,6 +370,7 @@ def efficient_frontier():
     return jsonify({
         'tickers': tickers,
         'allocations': allocations,
+        'blended_portfolio': blended_portfolio,
         'portfolio_allocation': portfolio_allocation.to_dict(),    
         'results': [[r.tolist() if isinstance(r, np.ndarray) else r.item() for r in res] for res in results.tolist()],
         'weights_record': [[w.item() for w in weights] for weights in weights_record],
@@ -944,7 +945,7 @@ def create_checkout_session():
         return jsonify({"error": "Invalid plan type"}), 400
 
     product_price = {
-        'annual': 'price_1NeKGSBhBxXSh10sptHpz205',
+        'annual': 'price_1Ndl3WBhBxXSh10syidkTmhF',
         'monthly': 'price_1NgMnFBhBxXSh10sQbjxbAb6'
     }
 
