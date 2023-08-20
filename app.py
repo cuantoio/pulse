@@ -65,7 +65,7 @@ def run_test():
 
 @app.route('/eb')
 def run_eb():
-    return 'eb-live v5.0.3'
+    return 'eb-live v5.0.4'
 
 # Updated function get_user_profile()
 def get_user_profile(username):
@@ -945,8 +945,8 @@ def create_checkout_session():
         return jsonify({"error": "Invalid plan type"}), 400
 
     product_price = {
-        'annual': 'price_1Ndl3WBhBxXSh10syidkTmhF',
-        'monthly': 'price_1NgMnFBhBxXSh10sQbjxbAb6'
+        'annual': 'price_1Nh0txBhBxXSh10sUTPRHczd',
+        'monthly': 'price_1Nh0txBhBxXSh10sHsx4SGLo'
     }
 
     session = stripe.checkout.Session.create(
