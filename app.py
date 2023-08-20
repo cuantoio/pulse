@@ -934,7 +934,6 @@ def log_all_requests():
 
 ### STRIPE SESSION ###
 # This is your Stripe CLI webhook secret for testing your endpoint locally.
-endpoint_secret = os.getenv('STRIPE_WEBHOOK_SECRET')
 YOUR_DOMAIN = "https://cuanto.io"  # "http://localhost:3000" #Replace with your website domain
 
 @app.route('/create-checkout-session', methods=['POST'])
