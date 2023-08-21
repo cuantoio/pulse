@@ -65,7 +65,7 @@ def run_test():
 
 @app.route('/eb')
 def run_eb():
-    return 'eb-live v5.0.4'
+    return 'eb-live v5.1.0'
 
 # Updated function get_user_profile()
 def get_user_profile(username):
@@ -319,30 +319,31 @@ def efficient_frontier():
     max_sharpe_index = results[2, :].argmax()
     min_vol_index = results[1, :].argmin()
 
-    if ("low" in prompt or "medium" in prompt) and "risk" in prompt:
-        print("low risk")
-        user_risk_tolerance = "low"
-    else:
-        print("high risk")
-        user_risk_tolerance = "high"
+    # if ("low" in prompt or "medium" in prompt) and "risk" in prompt:
+    #     print("low risk")
+    #     user_risk_tolerance = "low"
+    # else:
+    #     print("high risk")
+    #     user_risk_tolerance = "high"
 
-    # Calculate the portfolio's risk and return scores
-    risk_score = risk_scores[max_sharpe_index] if user_risk_tolerance == "high" else risk_scores[min_vol_index]
-    return_score = return_scores[max_sharpe_index] if user_risk_tolerance == "high" else return_scores[min_vol_index]
+    # # Calculate the portfolio's risk and return scores
+    # risk_score = risk_scores[max_sharpe_index] if user_risk_tolerance == "high" else risk_scores[min_vol_index]
+    # return_score = return_scores[max_sharpe_index] if user_risk_tolerance == "high" else return_scores[min_vol_index]
 
     max_sharpe_allocation, min_vol_allocation = get_key_allocations(results, weights_record, stock_data)
 
-    print(f"Max Sharpe Allocation: {max_sharpe_allocation.to_dict()}")
-    print(f"Min Volatility Allocation: {min_vol_allocation.to_dict()}")
+    # print(f"Max Sharpe Allocation: {max_sharpe_allocation.to_dict()}")
+    # print(f"Min Volatility Allocation: {min_vol_allocation.to_dict()}")
     
-    if user_risk_tolerance == "low" or user_risk_tolerance == "medium": 
-        portfolio_allocation = min_vol_allocation
-    else: 
-        portfolio_allocation = max_sharpe_allocation
+    # if user_risk_tolerance == "low" or user_risk_tolerance == "medium": 
+    #     portfolio_allocation = min_vol_allocation
+    # else: 
+    #     portfolio_allocation = max_sharpe_allocation
     
+    portfolio_allocation = max_sharpe_allocation
     print(f"print portfolio_allocation: {portfolio_allocation.to_dict()}")
-    blended_portfolio = fetch_data(portfolio_allocation.to_dict(), '')
-    print(f"print blended_portfolio:: {blended_portfolio}")
+    blended_portfolio, events = fetch_data(portfolio_allocation.to_dict(), '')
+    data_json = {ticker: df.to_json() for ticker, df in blended_portfolio.items()}
 
     # save portfolio to chat history v1.06
     timestamp = datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S")
@@ -353,7 +354,7 @@ def efficient_frontier():
         "trianglai_response": portfolio_summary
     }
     save_chat_history(username, timestamp, chat)
-
+    
     dynamodb_entry = {
         "UserId": username,
         "PortfolioName": f"Gen AI Portfolio - {timestamp}",
@@ -365,19 +366,10 @@ def efficient_frontier():
     print("new feat::: dynamodb_entry:", dynamodb_entry)
     save_user_portfolio_to_dynamodb(dynamodb_entry)
 
-    print('risk_score', risk_score,'return_score', return_score)
+    # print('risk_score', risk_score,'return_score', return_score)
 
     return jsonify({
-        'tickers': tickers,
-        'allocations': allocations,
-        'blended_portfolio': blended_portfolio,
-        'portfolio_allocation': portfolio_allocation.to_dict(),    
-        'results': [[r.tolist() if isinstance(r, np.ndarray) else r.item() for r in res] for res in results.tolist()],
-        'weights_record': [[w.item() for w in weights] for weights in weights_record],
-        'max_sharpe_index': int(max_sharpe_index),
-        'min_vol_index': int(min_vol_index),
-        'risk_score': risk_score.item() if np.isscalar(risk_score) else risk_score,
-        'return_score': return_score.item() if np.isscalar(return_score) else return_score
+        'data': data_json, 
     })
 
 @app.route('/api/add-manual-portfolio', methods=['POST'])
@@ -831,7 +823,12 @@ def api_scenarios():
 
     # Convert pandas dataframes to json before returning
     data_json = {ticker: df.to_json() for ticker, df in data.items()}
-    return jsonify({'trianglai_response': gpt_response_story, 'username': username, 'data': data_json, 'events': events})
+    return jsonify({
+        'trianglai_response': gpt_response_story, 
+        'username': username, 
+        'data': data_json, 
+        'events': events
+        })
 
 ### SCENARIOS - END ###
 
