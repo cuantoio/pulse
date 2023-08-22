@@ -65,7 +65,7 @@ def run_test():
 
 @app.route('/eb')
 def run_eb():
-    return 'eb-live v5.1.0'
+    return 'eb-live v5.1.1'
 
 # Updated function get_user_profile()
 def get_user_profile(username):
@@ -448,8 +448,8 @@ def api_combined_summary():
     gpt_prompt = f"""given this query: {query}"""
     
     response = openai.ChatCompletion.create(
-        model="gpt-3.5-turbo",
-        # model="gpt-4",
+        # model="gpt-3.5-turbo",
+        model="gpt-4",
         messages=[
             {
                 "role": "system",
@@ -771,8 +771,8 @@ def api_scenarios():
     print("scenarios:: gpt_prompt:", gpt_prompt)
 
     response = openai.ChatCompletion.create(
-        model="gpt-3.5-turbo",
-        # model="gpt-4",
+        # model="gpt-3.5-turbo",
+        model="gpt-4",
         messages=[
             {
                 "role": "system",
@@ -796,8 +796,8 @@ def api_scenarios():
     gpt_prompt_story = f"""summarize this simply and concisely: {query}"""
     
     response_story = openai.ChatCompletion.create(
-        model="gpt-3.5-turbo",
-        # model="gpt-4",
+        # model="gpt-3.5-turbo",
+        model="gpt-4",
         messages=[
             {
                 "role": "system",
