@@ -65,75 +65,7 @@ def run_test():
 
 @app.route('/eb')
 def run_eb():
-    return 'eb-live v5.2.0'
-
-# Updated function get_user_profile()
-def get_user_profile(username):
-    try:
-        response = table.get_item(
-            Key={
-                'UserID': username
-            }        
-        )        
-    except NoCredentialsError or PartialCredentialsError:
-        return None
-
-    user_profile = response.get('Item')
-    
-    if user_profile is None:
-        return None
-
-    user_profile_df = pd.DataFrame([user_profile])
-
-    list_columns = ['CurrentPortfolio', 'PortfolioHistory', 'Recommendations', 'AllocationPercentages']
-    for column in list_columns:
-        user_profile_df[column] = user_profile_df[column].apply(json.loads)
-    
-    return user_profile_df
-
-def update_user_profile(user_profile):
-    """
-    This function updates a user's profile in the DynamoDB database.
-    """
-    table.put_item(
-        Item=user_profile
-    )
-    print("update called")
-
-@app.route('/api/userPortfolio/<username>', methods=['GET'])
-def api_user_portfolio(username):
-    if username is None or username.lower() == 'undefined':
-        return jsonify({'message': 'Invalid username supplied'}), 400
-
-    # user_profile_df = get_user_profile(username)
-    # user_portfolio = load_user_portfolio_from_dynamodb(username)
-
-    if user_portfolio is None:
-        return jsonify({'message': 'User not found'}), 404
-
-    user_portfolio_dict = user_portfolio.to_dict(orient='records')[0]
-    return jsonify(user_portfolio_dict), 200
-
-@app.route('/api/feedback', methods=['POST'])
-def api_feedback():
-    data = request.get_json()
-    print("Received data:", data)
-
-    message_id = data.get('message_id')
-    feedback = data.get('feedback')
-
-    if message_id and feedback:
-        feedback_data = {
-            'message_id': message_id,
-            'feedback': feedback,
-            'username': data.get('username')
-        }
-
-        table.put_item(Item=feedback_data)
-        
-        return jsonify({'status': 'success'})
-    else:
-        return jsonify({'error': 'Invalid input'}), 400
+    return 'eb-live v5.2.1'
 
 def save_chat_history(chat_history):
     today = datetime.utcnow().strftime("%Y-%m-%d")
@@ -448,8 +380,8 @@ def api_combined_summary():
     gpt_prompt = f"""given this query: {query}"""
     
     response = openai.ChatCompletion.create(
-        # model="gpt-3.5-turbo",
-        model="gpt-4",
+        model="gpt-3.5-turbo",
+        # model="gpt-4",
         messages=[
             {
                 "role": "system",
@@ -474,64 +406,6 @@ def api_combined_summary():
     save_chat_history(username, timestamp, chat)
 
     return jsonify({'trianglai_response': gpt_response, 'username': username})
-
-# default_portfolio = {
-#     'DLR': {'allocation': 18.58134053},
-#     'SPG': {'allocation': 5.96591771},
-#     'ARE': {'allocation': 5.21638715},
-#     'EQR': {'allocation': 7.01589525},
-#     'NVDA': {'allocation': 7.32163178},
-#     'EQIX': {'allocation': 7.94139182},
-#     'JNJ': {'allocation': 2.48767978},
-#     'VOO': {'allocation': 3.68012278},
-#     'AEP': {'allocation': 1.52550893},
-#     'MSFT': {'allocation': 3.86296522},
-#     'AVB': {'allocation': 1.10375472},
-#     'NEE': {'allocation': 1.76459701},
-#     'META': {'allocation': 6.89370643},
-#     'XLU': {'allocation': 0.52595852},
-#     'GOOGL': {'allocation': 2.48027440},
-#     'IAU': {'allocation': 0.77721259},
-#     'WELL': {'allocation': 0.37203234},
-#     'WY': {'allocation': 0.33976603},
-#     'BA': {'allocation': 1.28836035},
-#     'D': {'allocation': 0.14704975},
-#     'O': {'allocation': 0.10755437},
-#     'GLD': {'allocation': 0.20858496},
-#     'AGG': {'allocation': 0.03544005},
-#     'TLT': {'allocation': 0.59754389},
-#     'AMZN': {'allocation': 0.65378954},
-#     'RTX': {'allocation': 1.78152360},
-#     'AAPL': {'allocation': 3.65843559},
-#     'AMD': {'allocation': 3.81236177},
-#     'TSLA': {'allocation': 2.72006775},
-#     'ETH-USD': {'allocation': 7.12062853},
-#     'DOGE-USD': {'allocation': 0.01251686},
-#     'CASH': {'allocation': 0.00000000},
-# }
-
-# default_portfolio = { 'META': {'allocation': 25}, 'AAPL': {'allocation': 25}, }
-
-# default_portfolio = {
-#     'AAPL': {'allocation': 1.00},
-#     'AMZN': {'allocation': 12.00},
-#     'GM': {'allocation': 26.00},
-#     'META': {'allocation': 1.00},
-#     'MSFT': {'allocation': 1.00},
-#     'NVDA': {'allocation': 11.00},
-#     'TSLA': {'allocation': 2.00},
-#     'CASH': {'allocation': 1735.16},
-# }
-
-# default_portfolio = {
-#     'QQQ': {'allocation': 0.12270776},
-#     'VYM': {'allocation': 0.07852126},
-#     'NVDA': {'allocation': 0.33522165},
-#     'VOO': {'allocation': 0.18964405},
-#     'AAPL': {'allocation': 0.15792791},
-#     'MSFT': {'allocation': 0.11597737},
-#     'CASH': {'allocation': -0.00000000},
-# }
 
 PROFILE_PREFIX = 'user_profile/'
 
@@ -581,17 +455,6 @@ from datetime import datetime
 from dateutil.relativedelta import relativedelta
 import concurrent.futures
 
-# default_portfolio = {
-#     'IJR': {'allocation': 26.2},
-#     'EFA': {'allocation': 25.94},
-#     'IJH': {'allocation': 23.83},
-#     'VNQ': {'allocation': 14.99},
-#     'EEM': {'allocation': 4.09},
-#     'SPY': {'allocation': 3.82},
-#     'IEF': {'allocation': 0.85},
-#     'LQD': {'allocation': 0.29},
-# }
-
 default_portfolio = {
   'AAPL': {'allocation': 12.5},
   'AMZN': {'allocation': 12.5},
@@ -603,54 +466,6 @@ default_portfolio = {
   'TSLA': {'allocation': 12.5},
 }
 
-# @app.route('/api/parsePortfolio', methods=['POST'])
-# def api_parse_portfolio():
-#     data = request.json
-#     username = data.get('username', 'tsm')
-#     portfolio_name = data.get('portfolioName', 'Test Portfolio')
-
-#     gpt_prompt = f"""given uploaded portfolio: {data}"""
-
-#     print("parser:: gpt_prompt:", gpt_prompt)
-
-#     try:
-#         response = openai.ChatCompletion.create(
-#             model="gpt-4",
-#             messages=[
-#                 {
-#                     "role": "system",
-#                     "content": "please parse the portfolio data given the uploaded portfolio. The response must be in a format like this: [{'META': {'allocation': 25}, 'AAPL': {'allocation': 25}, }]",
-#                 },
-#                 {
-#                     "role": "user", 
-#                     "content": gpt_prompt
-#                 },
-#             ],
-#         )
-
-#         gpt_response = response.choices[0].message['content'].strip()
-#         print("scenarios:: trianglai_response:", gpt_response)
-#         gpt_response_data = parse_portfolio_data(gpt_response)
-#         print("scenarios:: trianglai_response_data:", gpt_response_data)
-
-#         # Create a dictionary for the DynamoDB entry
-#         dynamodb_entry = {
-#             "UserId": username,
-#             "PortfolioName": portfolio_name,
-#             "Portfolio": gpt_response_data,
-#         }
-
-#         #save portfolio
-#         print("new feat::: dynamodb_entry:", dynamodb_entry)
-#         save_user_portfolio_to_dynamodb(dynamodb_entry)
-
-#         # Return the DynamoDB entry as JSON
-#         return jsonify(dynamodb_entry), 200
-
-#     except Exception as e:
-#         # If there is an error, return a error message and a 500 status
-#         return jsonify({"error": str(e)}), 500
-    
 def extract_events_dates(text):
     pattern = r"'event': '([^']+)', 'date': '([^']+)'"
     matches = re.findall(pattern, text)
@@ -772,8 +587,8 @@ def api_scenarios():
     print("scenarios:: gpt_prompt:", gpt_prompt)
 
     response = openai.ChatCompletion.create(
-        # model="gpt-3.5-turbo",
-        model="gpt-4",
+        model="gpt-3.5-turbo",
+        # model="gpt-4",
         messages=[
             {
                 "role": "system",
