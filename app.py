@@ -65,7 +65,7 @@ def run_test():
 
 @app.route('/eb')
 def run_eb():
-    return 'eb-live v5.2.2'
+    return 'eb-live v6.0.0'
 
 def save_chat_history(chat_history):
     today = datetime.utcnow().strftime("%Y-%m-%d")
@@ -372,6 +372,26 @@ def api_combined_summary():
     num_results = data.get('num_results', 10)
     username = data.get('username', 'tsm')
 
+    portfolioName = data.get('portfolioName', 'default_portfolio')
+    
+    if portfolioName != 'default_portfolio':
+        loaded_portfolio = load_user_portfolio_from_dynamodb(username, portfolioName)
+
+        # Ensure 'Portfolio' is a dictionary and that it contains items
+        if 'Portfolio' in loaded_portfolio and isinstance(loaded_portfolio['Portfolio'], dict):
+            processed_portfolio = {}
+            for investment_key, investment_data in loaded_portfolio['Portfolio'].items():
+                if isinstance(investment_data, dict) and 'allocation' in investment_data:
+                    processed_portfolio[investment_key] = {'allocation': investment_data['allocation']}
+            loaded_portfolio = processed_portfolio
+        else:
+            loaded_portfolio = {}
+
+        print('loaded db portfolio', loaded_portfolio, 'default', default_portfolio)    
+    else:
+        loaded_portfolio = default_portfolio
+        print('loaded default portfolio', loaded_portfolio)
+
     # received prompt data
     timestamp = datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S")
 
@@ -385,13 +405,13 @@ def api_combined_summary():
         messages=[
             {
                 "role": "system",
-                "content": "You're an AI that chats in very short responses. You must answer as best as you can. Your objective is gain more trust. As a portfolio management co-pilot you're responses assist with investment strategy, ticker recommendations, portfolio optimization and other investment queries. When you provide tickers, they must be at the end of your response in this format: [$TICKER1 $TICKER2]",
+                "content": "You're an AI that chats in very short responses. You must answer as best as you can. Your objective is gain more trust. As a portfolio management co-pilot you're responses assist with investment strategy, ticker recommendations, portfolio optimization and other investment queries. ",
                 # "content": "You're an AI that chats in short, friendly and conversational manner. You provide portfolio updates in a format that anyone can understand, never in JSON format. Unless the user's query involves analyzing the optimized portfolio, you assist with ticker lists, strategey, recommendations, portfolio optimization, personalized financial planning, and real-time market analysis. provided tickers must be in this format: [$TICKER1 $TICKER2]",
                 # "content": "You are an AI Optimizer. You help financial professionals balance client portfolios, recommend strategy optimization, strategy brainstorming and more. Try to keep responses under 150 characters."
             },
             {
                 "role": "user", 
-                "content": gpt_prompt
+                "content": gpt_prompt + " my portfolio: " + str(loaded_portfolio)
             },
         ],
     )
@@ -622,8 +642,8 @@ def api_scenarios():
     print("scenarios:: gpt_prompt:", gpt_prompt)
 
     response = openai.ChatCompletion.create(
-        model="gpt-3.5-turbo",
-        # model="gpt-4",
+        # model="gpt-3.5-turbo",
+        model="gpt-4",
         messages=[
             {
                 "role": "system",
@@ -631,7 +651,7 @@ def api_scenarios():
             },
             {
                 "role": "user", 
-                "content": gpt_prompt
+                "content": gpt_prompt + " for this portfolio: " + str(loaded_portfolio)
             },
         ],
     )
@@ -782,7 +802,7 @@ def log_all_requests():
 
 ### STRIPE SESSION ###
 # This is your Stripe CLI webhook secret for testing your endpoint locally.
-YOUR_DOMAIN = "https://cuanto.io"  # "http://localhost:3000" #Replace with your website domain
+YOUR_DOMAIN = "https://triangl.ai" #"https://cuanto.io"  # "http://localhost:3000" #Replace with your website domain
 
 @app.route('/create-checkout-session', methods=['POST'])
 def create_checkout_session():
