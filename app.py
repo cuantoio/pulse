@@ -65,7 +65,7 @@ def run_test():
 
 @app.route('/eb')
 def run_eb():
-    return 'eb-live v6.0.0'
+    return 'eb-live v7.0.0'
 
 def save_chat_history(chat_history):
     today = datetime.utcnow().strftime("%Y-%m-%d")
@@ -175,6 +175,67 @@ def calculate_score(total_allocation, tracking_error, active_share):
 
     return score * 100  # converting the score to percentage
 
+@app.route('/api/add-manual-portfolio', methods=['POST'])
+def add_manual_portfolio():
+    data = request.json
+    userId = data.get('userId', 'noname')
+    portfolio_name = data.get('username', 'Manual Portfolio')
+    portfolio = data.get('portfolio')
+
+    timestamp = datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S")
+
+    dynamodb_entry = {
+        "UserId": userId,
+        "PortfolioName": f"{portfolio_name} - {timestamp}",
+        "Portfolio": portfolio,
+        "Feature": "manual add",
+    }
+
+    #save portfolio
+    print("new feat::: dynamodb_entry:", dynamodb_entry)
+    save_user_portfolio_to_dynamodb(dynamodb_entry)
+
+    return jsonify(dynamodb_entry), 200    
+
+def save_user_portfolio_to_dynamodb(dynamodb_entry):
+    """
+    Add a user's manual portfolio to a DynamoDB table.
+    """
+
+    print("dynamodb_entry::", dynamodb_entry)
+    table_portfolio.put_item(
+        Item={
+            'UserId': dynamodb_entry["UserId"],
+            'Portfolio': json.dumps(dynamodb_entry["Portfolio"]),
+            'PortfolioName': dynamodb_entry["PortfolioName"],
+            'Feature': dynamodb_entry["Feature"],
+        }
+    )
+
+def save_chat_history(username, timestamp, chat):
+    table_chat_history.put_item(
+        Item={
+            'username': username,
+            'timestamp': timestamp,
+            'chat': chat
+        }
+    )
+
+def load_chat_history(username):
+    response = table_chat_history.query(
+        KeyConditionExpression=Key('username').eq(username),
+        ScanIndexForward=False,  # to retrieve items in descending order
+        Limit=7  # limit to last conversation
+    )
+    
+    items = response['Items']
+    
+    if items:
+        # Return the 'chat' dictionary of the last conversation
+        return items[0]['chat']
+
+    return None  # return None if no conversation found
+
 @app.route('/api/efficient_frontier', methods=['POST'])
 def efficient_frontier():
     data = request.json
@@ -241,7 +302,7 @@ def efficient_frontier():
     mean_returns = daily_returns.mean()
     cov_matrix = daily_returns.cov()
 
-    n_sims = 1000
+    n_sims = 10000
     risk_free_rate = 0.045
     num_portfolios = n_sims
 
@@ -304,67 +365,6 @@ def efficient_frontier():
         'data': data_json, 
     })
 
-@app.route('/api/add-manual-portfolio', methods=['POST'])
-def add_manual_portfolio():
-    data = request.json
-    userId = data.get('userId', 'noname')
-    portfolio_name = data.get('username', 'Manual Portfolio')
-    portfolio = data.get('portfolio')
-
-    timestamp = datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S")
-
-    dynamodb_entry = {
-        "UserId": userId,
-        "PortfolioName": f"{portfolio_name} - {timestamp}",
-        "Portfolio": portfolio,
-        "Feature": "manual add",
-    }
-
-    #save portfolio
-    print("new feat::: dynamodb_entry:", dynamodb_entry)
-    save_user_portfolio_to_dynamodb(dynamodb_entry)
-
-    return jsonify(dynamodb_entry), 200    
-
-def save_user_portfolio_to_dynamodb(dynamodb_entry):
-    """
-    Add a user's manual portfolio to a DynamoDB table.
-    """
-
-    print("dynamodb_entry::", dynamodb_entry)
-    table_portfolio.put_item(
-        Item={
-            'UserId': dynamodb_entry["UserId"],
-            'Portfolio': json.dumps(dynamodb_entry["Portfolio"]),
-            'PortfolioName': dynamodb_entry["PortfolioName"],
-            'Feature': dynamodb_entry["Feature"],
-        }
-    )
-
-def save_chat_history(username, timestamp, chat):
-    table_chat_history.put_item(
-        Item={
-            'username': username,
-            'timestamp': timestamp,
-            'chat': chat
-        }
-    )
-
-def load_chat_history(username):
-    response = table_chat_history.query(
-        KeyConditionExpression=Key('username').eq(username),
-        ScanIndexForward=False,  # to retrieve items in descending order
-        Limit=7  # limit to last conversation
-    )
-    
-    items = response['Items']
-    
-    if items:
-        # Return the 'chat' dictionary of the last conversation
-        return items[0]['chat']
-
-    return None  # return None if no conversation found
-
 @app.route('/api/combined_summary', methods=['POST'])
 def api_combined_summary():
     data = request.json
@@ -406,8 +406,6 @@ def api_combined_summary():
             {
                 "role": "system",
                 "content": "You're an AI that chats in very short responses. You must answer as best as you can. Your objective is gain more trust. As a portfolio management co-pilot you're responses assist with investment strategy, ticker recommendations, portfolio optimization and other investment queries. ",
-                # "content": "You're an AI that chats in short, friendly and conversational manner. You provide portfolio updates in a format that anyone can understand, never in JSON format. Unless the user's query involves analyzing the optimized portfolio, you assist with ticker lists, strategey, recommendations, portfolio optimization, personalized financial planning, and real-time market analysis. provided tickers must be in this format: [$TICKER1 $TICKER2]",
-                # "content": "You are an AI Optimizer. You help financial professionals balance client portfolios, recommend strategy optimization, strategy brainstorming and more. Try to keep responses under 150 characters."
             },
             {
                 "role": "user", 
@@ -925,6 +923,76 @@ def check_is_premium_user():
 
     return jsonify({"isPremiumUser": False})
 
+
+### Learn ###
+@app.route('/tasks', methods=['GET'])
+def get_tasks():
+    try:
+        query = request.args.get('prompt')
+        gpt_prompt = f"""given search: {query}. instruction: only 3 topics."""
+
+        # Using the chat-based model
+        response = openai.ChatCompletion.create(
+            model="gpt-4",
+            messages=[
+                # {
+                #     "role": "system",
+                #     "content": "You're an AI that provides learning challenges based on user queries. Please suggest relevant tasks for the user to complete. Note:: response must include dictionary of recommendations: [{},{}]",
+                # },
+                {
+                    "role": "user", 
+                    "content": "given nsearch: can you give me examples?"
+                },
+                {
+                    "role": "system",
+                    "content": """\n📘 Effective Study Techniques \n✍ Engaging Content Creation \n🚀 Strategic Business Pitches \n""",
+                },
+                {
+                    "role": "user", 
+                    "content": gpt_prompt
+                },
+            ],
+        )
+
+        gpt_response = response.choices[0].message['content'].strip()
+        print('gpt_response:', gpt_response)
+        tasks = [
+            {
+                "id": i+1,
+                "name": challenge,
+                "difficulty": "medium"
+            }
+            for i, challenge in enumerate(gpt_response.split("\n") if gpt_response else [])
+            if len(challenge) >= 3
+        ]
+
+        return jsonify(tasks)
+    
+    except Exception as e:
+        print(f"Error occurred: {e}")
+        return jsonify({"error": "An error occurred while processing the request."}), 500
+
+@app.route('/verify', methods=['GET'])
+def verify_answer():
+    task_id = request.args.get('task')
+    user_answer = request.args.get('answer')
+    gpt_prompt = f"Is the answer '{user_answer}' correct for task {task_id}?"
+
+    response = openai.Completion.create(
+        model="gpt-3.5-turbo",
+        prompt=gpt_prompt,
+        max_tokens=50
+    )
+
+    gpt_response = response.choices[0].text.strip().lower()
+
+    if "yes" in gpt_response or "correct" in gpt_response:
+        return jsonify({"correct": True, "reward": "Congratulations! You've earned 10 points."})
+    else:
+        return jsonify({"correct": False, "feedback": "Try again!"})
+
+
+### ----- ###
 if __name__ == "__main__":
-    # app.run(port=5000)
-    app.run(host="0.0.0.0", port=8080)
+    app.run(port=5000)
+    # app.run(host="0.0.0.0", port=8080)
