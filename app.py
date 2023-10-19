@@ -65,7 +65,7 @@ def run_test():
 
 @app.route('/eb')
 def run_eb():
-    return 'eb-live v7.0.0'
+    return 'eb-live v7.0.1'
 
 def save_chat_history(chat_history):
     today = datetime.utcnow().strftime("%Y-%m-%d")
@@ -994,5 +994,5 @@ def verify_answer():
 
 ### ----- ###
 if __name__ == "__main__":
-    app.run(port=5000)
-    # app.run(host="0.0.0.0", port=8080)
+    # app.run(port=5000)
+    app.run(host="0.0.0.0", port=8080)
