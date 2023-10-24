@@ -67,7 +67,7 @@ def run_test():
 
 @app.route('/eb')
 def run_eb():
-    return 'eb-live v7.3'
+    return 'eb-live v7.4'
 
 def save_chat_history(chat_history):
     today = datetime.utcnow().strftime("%Y-%m-%d")
@@ -906,67 +906,67 @@ def check_is_premium_user():
 
     return jsonify({"isPremiumUser": False})
 
-# from decimal import Decimal
-# from sklearn.feature_extraction.text import TfidfVectorizer
-# from sklearn.metrics.pairwise import linear_kernel
+from decimal import Decimal
+from sklearn.feature_extraction.text import TfidfVectorizer
+from sklearn.metrics.pairwise import linear_kernel
 
-# ### Tri ###
-# class Collection:
-#     def __init__(self, user_id, name):
-#         self.user_id = user_id
-#         self.name = name
+### Tri ###
+class Collection:
+    def __init__(self, user_id, name):
+        self.user_id = user_id
+        self.name = name
 
-#     def add(self, documents=[], metadatas=[], ids=[], embeddings=None):
-#         for doc, meta, doc_id in zip(documents, metadatas, ids):
-#             item = {
-#                 'UserId': self.user_id,
-#                 'collection_document_id': f'{self.name}_{doc_id}',
-#                 'document': doc,
-#                 'metadata': meta
-#             }
-#             table_TriDB.put_item(Item=item)
+    def add(self, documents=[], metadatas=[], ids=[], embeddings=None):
+        for doc, meta, doc_id in zip(documents, metadatas, ids):
+            item = {
+                'UserId': self.user_id,
+                'collection_document_id': f'{self.name}_{doc_id}',
+                'document': doc,
+                'metadata': meta
+            }
+            table_TriDB.put_item(Item=item)
 
-#         # Ensure that documents aren't empty or don't just contain stop words
-#         vectorizer = TfidfVectorizer(stop_words='english')
-#         try:
-#             self.embeddings = vectorizer.fit_transform(documents).toarray()
-#         except ValueError:
-#             # Handle the case where vocabulary is empty
-#             self.embeddings = []
+        # Ensure that documents aren't empty or don't just contain stop words
+        vectorizer = TfidfVectorizer(stop_words='english')
+        try:
+            self.embeddings = vectorizer.fit_transform(documents).toarray()
+        except ValueError:
+            # Handle the case where vocabulary is empty
+            self.embeddings = []
 
-#     def query(self, query_texts, n_results=1):
-#         # Fetch documents for the given user from DynamoDB
-#         documents = [item['document'] for item in table_TriDB.query(
-#             KeyConditionExpression=boto3.dynamodb.conditions.Key('UserId').eq(self.user_id)
-#         )['Items']]
+    def query(self, query_texts, n_results=1):
+        # Fetch documents for the given user from DynamoDB
+        documents = [item['document'] for item in table_TriDB.query(
+            KeyConditionExpression=boto3.dynamodb.conditions.Key('UserId').eq(self.user_id)
+        )['Items']]
         
-#         # If no documents are found for the given UserId, return an appropriate message or an empty list
-#         if not documents:
-#             return []
+        # If no documents are found for the given UserId, return an appropriate message or an empty list
+        if not documents:
+            return []
 
-#         # Embed the query text
-#         vectorizer = TfidfVectorizer(stop_words='english').fit(documents + query_texts)
-#         query_embedding = vectorizer.transform(query_texts)
+        # Embed the query text
+        vectorizer = TfidfVectorizer(stop_words='english').fit(documents + query_texts)
+        query_embedding = vectorizer.transform(query_texts)
 
-#         # Compute similarities with each document
-#         doc_embeddings = vectorizer.transform(documents)
-#         cosine_similarities = linear_kernel(query_embedding, doc_embeddings).flatten()
+        # Compute similarities with each document
+        doc_embeddings = vectorizer.transform(documents)
+        cosine_similarities = linear_kernel(query_embedding, doc_embeddings).flatten()
 
-#         # Get indices of top n_results similar documents
-#         top_indices = cosine_similarities.argsort()[-n_results:][::-1]
+        # Get indices of top n_results similar documents
+        top_indices = cosine_similarities.argsort()[-n_results:][::-1]
 
-#         # Return top documents
-#         return [documents[i] for i in top_indices]
+        # Return top documents
+        return [documents[i] for i in top_indices]
                 
-# class TriDB_client:
-#     @staticmethod
-#     def create_collection(user_id, name):
-#         collection = Collection(user_id, name)
-#         return collection
+class TriDB_client:
+    @staticmethod
+    def create_collection(user_id, name):
+        collection = Collection(user_id, name)
+        return collection
 
-#     @staticmethod
-#     def get_collection(user_id, name):
-#         return Collection(user_id, name)
+    @staticmethod
+    def get_collection(user_id, name):
+        return Collection(user_id, name)
     
 # @app.route('/tri', methods=['POST'])
 # def triChat():
