@@ -52,6 +52,8 @@ table_user_profiles = dynamodb.Table(os.getenv("DYNAMODB_TABLE_USER_PROFILE"))
 table_chat_history = dynamodb.Table(os.getenv("DYNAMODB_TABLE_CHAT_HISTORY"))
 table_payments = dynamodb.Table(os.getenv("DYNAMODB_TABLE_PAYMENTS")) 
 
+table_TriDB = dynamodb.Table(os.getenv("DYNAMODB_TABLE_TRIDB")) 
+
 # Updated Redis setup
 try:
     r = Redis(host='localhost', port=6379, db=0)
@@ -65,7 +67,7 @@ def run_test():
 
 @app.route('/eb')
 def run_eb():
-    return 'eb-live v7.0.1'
+    return 'eb-live v7.0.2'
 
 def save_chat_history(chat_history):
     today = datetime.utcnow().strftime("%Y-%m-%d")
@@ -312,26 +314,7 @@ def efficient_frontier():
     max_sharpe_index = results[2, :].argmax()
     min_vol_index = results[1, :].argmin()
 
-    # if ("low" in prompt or "medium" in prompt) and "risk" in prompt:
-    #     print("low risk")
-    #     user_risk_tolerance = "low"
-    # else:
-    #     print("high risk")
-    #     user_risk_tolerance = "high"
-
-    # # Calculate the portfolio's risk and return scores
-    # risk_score = risk_scores[max_sharpe_index] if user_risk_tolerance == "high" else risk_scores[min_vol_index]
-    # return_score = return_scores[max_sharpe_index] if user_risk_tolerance == "high" else return_scores[min_vol_index]
-
     max_sharpe_allocation, min_vol_allocation = get_key_allocations(results, weights_record, stock_data)
-
-    # print(f"Max Sharpe Allocation: {max_sharpe_allocation.to_dict()}")
-    # print(f"Min Volatility Allocation: {min_vol_allocation.to_dict()}")
-    
-    # if user_risk_tolerance == "low" or user_risk_tolerance == "medium": 
-    #     portfolio_allocation = min_vol_allocation
-    # else: 
-    #     portfolio_allocation = max_sharpe_allocation
     
     portfolio_allocation = max_sharpe_allocation
     print(f"print portfolio_allocation: {portfolio_allocation.to_dict()}")
@@ -923,76 +906,149 @@ def check_is_premium_user():
 
     return jsonify({"isPremiumUser": False})
 
+from decimal import Decimal
+from sklearn.feature_extraction.text import TfidfVectorizer
+from sklearn.metrics.pairwise import linear_kernel
 
-### Learn ###
-@app.route('/tasks', methods=['GET'])
-def get_tasks():
-    try:
-        query = request.args.get('prompt')
-        gpt_prompt = f"""given search: {query}. instruction: only 3 topics."""
+### Tri ###
+class Collection:
+    def __init__(self, user_id, name):
+        self.user_id = user_id
+        self.name = name
 
-        # Using the chat-based model
-        response = openai.ChatCompletion.create(
-            model="gpt-4",
-            messages=[
-                # {
-                #     "role": "system",
-                #     "content": "You're an AI that provides learning challenges based on user queries. Please suggest relevant tasks for the user to complete. Note:: response must include dictionary of recommendations: [{},{}]",
-                # },
-                {
-                    "role": "user", 
-                    "content": "given nsearch: can you give me examples?"
-                },
-                {
-                    "role": "system",
-                    "content": """\n📘 Effective Study Techniques \n✍ Engaging Content Creation \n🚀 Strategic Business Pitches \n""",
-                },
-                {
-                    "role": "user", 
-                    "content": gpt_prompt
-                },
-            ],
-        )
-
-        gpt_response = response.choices[0].message['content'].strip()
-        print('gpt_response:', gpt_response)
-        tasks = [
-            {
-                "id": i+1,
-                "name": challenge,
-                "difficulty": "medium"
+    def add(self, documents=[], metadatas=[], ids=[], embeddings=None):
+        for doc, meta, doc_id in zip(documents, metadatas, ids):
+            item = {
+                'UserId': self.user_id,
+                'collection_document_id': f'{self.name}_{doc_id}',
+                'document': doc,
+                'metadata': meta
             }
-            for i, challenge in enumerate(gpt_response.split("\n") if gpt_response else [])
-            if len(challenge) >= 3
-        ]
+            table_TriDB.put_item(Item=item)
 
-        return jsonify(tasks)
+        # Ensure that documents aren't empty or don't just contain stop words
+        vectorizer = TfidfVectorizer(stop_words='english')
+        try:
+            self.embeddings = vectorizer.fit_transform(documents).toarray()
+        except ValueError:
+            # Handle the case where vocabulary is empty
+            self.embeddings = []
+
+    def query(self, query_texts, n_results=1):
+        # Fetch documents for the given user from DynamoDB
+        documents = [item['document'] for item in table_TriDB.query(
+            KeyConditionExpression=boto3.dynamodb.conditions.Key('UserId').eq(self.user_id)
+        )['Items']]
+        
+        # If no documents are found for the given UserId, return an appropriate message or an empty list
+        if not documents:
+            return []
+
+        # Embed the query text
+        vectorizer = TfidfVectorizer(stop_words='english').fit(documents + query_texts)
+        query_embedding = vectorizer.transform(query_texts)
+
+        # Compute similarities with each document
+        doc_embeddings = vectorizer.transform(documents)
+        cosine_similarities = linear_kernel(query_embedding, doc_embeddings).flatten()
+
+        # Get indices of top n_results similar documents
+        top_indices = cosine_similarities.argsort()[-n_results:][::-1]
+
+        # Return top documents
+        return [documents[i] for i in top_indices]
+                
+class TriDB_client:
+    @staticmethod
+    def create_collection(user_id, name):
+        collection = Collection(user_id, name)
+        return collection
+
+    @staticmethod
+    def get_collection(user_id, name):
+        return Collection(user_id, name)
     
-    except Exception as e:
-        print(f"Error occurred: {e}")
-        return jsonify({"error": "An error occurred while processing the request."}), 500
+# @app.route('/tri', methods=['POST'])
+# def triChat():
+#     # User data and query
+#     data = request.json
+#     gpt_prompt = data.get('prompt')
 
-@app.route('/verify', methods=['GET'])
-def verify_answer():
-    task_id = request.args.get('task')
-    user_answer = request.args.get('answer')
-    gpt_prompt = f"Is the answer '{user_answer}' correct for task {task_id}?"
+#     # Use chat-based model
+#     response = openai.ChatCompletion.create(
+#         model="gpt-3.5-turbo",
+#         messages=[
+#             {
+#                 "role": "system",
+#                 "content": f"guide them to earn, save and invest better."
+#             },
+#             {
+#                 "role": "user", 
+#                 "content": f" msg:{gpt_prompt}"
+#             },
+#         ],
+#     )
 
-    response = openai.Completion.create(
-        model="gpt-3.5-turbo",
-        prompt=gpt_prompt,
-        max_tokens=50
+#     gpt_response = response.choices[0].message['content'].strip()
+
+#     print(gpt_response)
+#     return jsonify(gpt_response)
+
+@app.route('/tri', methods=['POST'])
+def triChat():
+    # User data and query
+    data = request.json
+    gpt_prompt =  data.get('prompt')
+
+    name = 'tree'
+    user_id = 'tsm_123'
+    collection = TriDB_client.create_collection(user_id, name)
+
+    # add to memory
+    collection.add(
+        documents=[gpt_prompt],
+        metadatas=[{"source": "chat"}],
     )
 
-    gpt_response = response.choices[0].text.strip().lower()
+    # Long-term memory
+    results = collection.query(
+        query_texts=[gpt_prompt],
+        n_results=3
+    )
 
-    if "yes" in gpt_response or "correct" in gpt_response:
-        return jsonify({"correct": True, "reward": "Congratulations! You've earned 10 points."})
-    else:
-        return jsonify({"correct": False, "feedback": "Try again!"})
+    memory = "\n".join(results)
 
+    # Use chat-based model
+    response = openai.ChatCompletion.create(
+        model="gpt-3.5-turbo",
+        messages=[
+            {
+                "role": "system",
+                "content": f"respond in less than 92 characters. mimic their tone. help them grow. IF they ask, guide them to earn, save and invest better."
+            },
+            {
+                "role": "function",
+                "name": "Tri",
+                "content": "respond as a friend."
+            },
+            {
+                "role": "user", 
+                "content": f"long context (do not repeat):{memory}. msg:{gpt_prompt}"
+            },
+        ],
+    )
 
+    gpt_response = response.choices[0].message['content'].strip()
+
+    collection.add(
+        documents=["Tri: "+gpt_response],
+        metadatas=[{"source": "chat"}],
+    )
+
+    print(gpt_response)
+    return jsonify(gpt_response)
 ### ----- ###
+
 if __name__ == "__main__":
     # app.run(port=5000)
     app.run(host="0.0.0.0", port=8080)
