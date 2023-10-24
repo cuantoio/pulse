@@ -909,7 +909,6 @@ def check_is_premium_user():
 from decimal import Decimal
 from sklearn.feature_extraction.text import TfidfVectorizer
 from sklearn.metrics.pairwise import linear_kernel
-from werkzeug.urls import quote
 
 ### Tri ###
 class Collection:
