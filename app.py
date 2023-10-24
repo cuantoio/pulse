@@ -67,7 +67,7 @@ def run_test():
 
 @app.route('/eb')
 def run_eb():
-    return 'eb-live v7.0.2'
+    return 'eb-live v7.0.3'
 
 def save_chat_history(chat_history):
     today = datetime.utcnow().strftime("%Y-%m-%d")
@@ -909,6 +909,7 @@ def check_is_premium_user():
 from decimal import Decimal
 from sklearn.feature_extraction.text import TfidfVectorizer
 from sklearn.metrics.pairwise import linear_kernel
+from werkzeug.urls import quote
 
 ### Tri ###
 class Collection:
