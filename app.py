@@ -67,7 +67,7 @@ def run_test():
 
 @app.route('/eb')
 def run_eb():
-    return 'eb-live v7.5'
+    return 'eb-live v7.6'
 
 def save_chat_history(chat_history):
     today = datetime.utcnow().strftime("%Y-%m-%d")
@@ -649,10 +649,6 @@ def api_scenarios():
 
 ### SCENARIOS - END ###
 
-### FORESIGHT - START ###
-
-### FORESIGHT - END ###
-
 ### PORTFOLIO STATE MGMT ###
 def get_portfolio_names(user_id):
 
@@ -877,90 +873,123 @@ from sklearn.metrics.pairwise import linear_kernel
 
 ### Tri ###
 class Collection:
-    def __init__(self, user_id, name):
+    def __init__(self, user_id, timestamp):
         self.user_id = user_id
-        self.name = name
+        self.timestamp = timestamp
+        self.documents = []
+        self.metadatas = []
+        self.ids = []
+        self.embeddings = []
 
-    def add(self, documents=[], metadatas=[], ids=[], embeddings=None):
+    def add(self, documents=[], metadatas=[], ids=[]):
+        self.documents.extend(documents)
+        self.metadatas.extend(metadatas)
+        self.ids.extend(ids)
+
         for doc, meta, doc_id in zip(documents, metadatas, ids):
             item = {
                 'UserId': self.user_id,
-                'collection_document_id': f'{self.name}_{doc_id}',
+                'collection_document_id': f'{self.timestamp}_{doc_id}',
                 'document': doc,
                 'metadata': meta
             }
             table_TriDB.put_item(Item=item)
 
-        # Ensure that documents aren't empty or don't just contain stop words
+        # Generate embeddings for the entire collection
         vectorizer = TfidfVectorizer(stop_words='english')
         try:
-            self.embeddings = vectorizer.fit_transform(documents).toarray()
+            self.embeddings = vectorizer.fit_transform(self.documents).toarray()
         except ValueError:
             # Handle the case where vocabulary is empty
             self.embeddings = []
 
     def query(self, query_texts, n_results=1):
-        # Fetch documents for the given user from DynamoDB
-        documents = [item['document'] for item in table_TriDB.query(
-            KeyConditionExpression=boto3.dynamodb.conditions.Key('UserId').eq(self.user_id)
-        )['Items']]
-        
-        # If no documents are found for the given UserId, return an appropriate message or an empty list
-        if not documents:
+        # If no documents are available, return an empty list
+        if not self.documents:
             return []
 
         # Embed the query text
-        vectorizer = TfidfVectorizer(stop_words='english').fit(documents + query_texts)
+        vectorizer = TfidfVectorizer(stop_words='english').fit(self.documents + query_texts)
         query_embedding = vectorizer.transform(query_texts)
 
         # Compute similarities with each document
-        doc_embeddings = vectorizer.transform(documents)
-        cosine_similarities = linear_kernel(query_embedding, doc_embeddings).flatten()
+        cosine_similarities = linear_kernel(query_embedding, self.embeddings).flatten()
 
         # Get indices of top n_results similar documents
         top_indices = cosine_similarities.argsort()[-n_results:][::-1]
 
         # Return top documents
-        return [documents[i] for i in top_indices]
-                
+        return [self.documents[i] for i in top_indices]
+
 class TriDB_client:
     @staticmethod
-    def create_collection(user_id, name):
-        collection = Collection(user_id, name)
+    def create_collection(user_id, timestamp):
+        collection = Collection(user_id, timestamp)
         return collection
 
     @staticmethod
-    def get_collection(user_id, name):
-        return Collection(user_id, name)
-    
-# @app.route('/tri', methods=['POST'])
-# def triChat():
-#     # User data and query
-#     data = request.json
-#     gpt_prompt = data.get('prompt')
-
-#     # Use chat-based model
-#     response = openai.ChatCompletion.create(
-#         model="gpt-3.5-turbo",
-#         messages=[
-#             {
-#                 "role": "system",
-#                 "content": f"guide them to earn, save and invest better."
-#             },
-#             {
-#                 "role": "user", 
-#                 "content": f" msg:{gpt_prompt}"
-#             },
-#         ],
-#     )
-
-#     gpt_response = response.choices[0].message['content'].strip()
-
-#     print(gpt_response)
-#     return jsonify(gpt_response)
-
+    def get_collection(user_id, timestamp):
+        return Collection(user_id, timestamp)
+        
 @app.route('/tri', methods=['POST'])
 def triChat():
+    # User data and query
+    data = request.json
+    userId = data.get('userId', 'noname')
+    gpt_prompt =  data.get('prompt')
+
+    timestamp = datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S")
+    print(userId, timestamp)
+    # collection = TriDB_client.create_collection(user_id, timestamp)
+
+    # # add to memory
+    # collection.add(
+    #     documents=[gpt_prompt],
+    #     metadatas=[{"source": "chat"}],
+    # )
+
+    # Long-term memory
+    # results = collection.query(
+    #     query_texts=[gpt_prompt],
+    #     n_results=3
+    # )
+
+    # memory = "\n".join(results)
+    memory = "memory under construction"
+
+    # Use chat-based model
+    response = openai.ChatCompletion.create(
+        model="gpt-3.5-turbo",
+        messages=[
+            {
+                "role": "system",
+                "content": f"respond in less than 92 characters. mimic their tone. help them grow. IF they ask, guide them to earn, save and invest better."
+            },
+            {
+                "role": "function",
+                "name": "Tri",
+                "content": "respond as their money buddy."
+            },
+            {
+                "role": "user", 
+                "content": f"long context (do not repeat):{memory}. msg:{gpt_prompt}"
+            },
+        ],
+    )
+
+    gpt_response = response.choices[0].message['content'].strip()
+
+    # collection.add(
+    #     documents=["Tri: "+gpt_response],
+    #     metadatas=[{"source": "chat"}],
+    # )
+
+    print(gpt_response)
+    return jsonify(gpt_response)
+### ----- ###
+
+@app.route('/journal', methods=['POST'])
+def journalChat():
     # User data and query
     data = request.json
     gpt_prompt =  data.get('prompt')
@@ -972,7 +1001,7 @@ def triChat():
     # add to memory
     collection.add(
         documents=[gpt_prompt],
-        metadatas=[{"source": "chat"}],
+        metadatas=[{"source": "journal"}],
     )
 
     # Long-term memory
@@ -989,11 +1018,11 @@ def triChat():
         messages=[
             {
                 "role": "system",
-                "content": f"respond in less than 92 characters. mimic their tone. help them grow. IF they ask, guide them to earn, save and invest better."
+                "content": f"respond in less than 92 characters. mimic their tone. help them trade better, improve their win rate."
             },
             {
                 "role": "function",
-                "name": "Tri",
+                "name": "Journal",
                 "content": "respond as a friend."
             },
             {
@@ -1006,13 +1035,12 @@ def triChat():
     gpt_response = response.choices[0].message['content'].strip()
 
     collection.add(
-        documents=["Tri: "+gpt_response],
-        metadatas=[{"source": "chat"}],
+        documents=["Journal: "+gpt_response],
+        metadatas=[{"source": "journal"}],
     )
 
     print(gpt_response)
     return jsonify(gpt_response)
-### ----- ###
 
 if __name__ == "__main__":
     # app.run(port=5000)
