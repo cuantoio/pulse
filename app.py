@@ -907,59 +907,10 @@ def check_is_premium_user():
     return jsonify({"isPremiumUser": False})
 
 from decimal import Decimal
-# from sklearn.feature_extraction.text import TfidfVectorizer
-# from sklearn.metrics.pairwise import linear_kernel
+from sklearn.feature_extraction.text import TfidfVectorizer
+from sklearn.metrics.pairwise import linear_kernel
 
 ### Tri ###
-from collections import defaultdict
-import math
-
-# TF-IDF Vectorization
-class TFIDFVectorizer:
-    def __init__(self):
-        self.idf_ = defaultdict(float)
-        self.vocab_ = defaultdict(int)
-
-    def fit(self, documents):
-        doc_count = len(documents)
-        doc_freq = defaultdict(int)
-
-        for document in documents:
-            for word in set(document.split()):
-                doc_freq[word] += 1
-
-        for word, count in doc_freq.items():
-            self.idf_[word] = math.log(doc_count / (1 + count))
-            self.vocab_[word] = len(self.vocab_)
-
-        return self
-
-    def transform(self, documents):
-        vectors = []
-        for document in documents:
-            vector = [0] * len(self.vocab_)
-            word_freq = defaultdict(int)
-            for word in document.split():
-                word_freq[word] += 1
-
-            for word, freq in word_freq.items():
-                if word in self.vocab_:
-                    vector[self.vocab_[word]] = freq * self.idf_[word]
-
-            vectors.append(vector)
-
-        return vectors
-
-# Cosine Similarity
-def cosine_similarity(vecA, vecB):
-    dot = sum(a*b for a, b in zip(vecA, vecB))
-    normA = math.sqrt(sum(a*a for a in vecA))
-    normB = math.sqrt(sum(b*b for b in vecB))
-    return dot / (normA * normB)
-
-def linear_kernel(matrixA, matrixB):
-    return [[cosine_similarity(vecA, vecB) for vecB in matrixB] for vecA in matrixA]
-
 class Collection:
     def __init__(self, user_id, name):
         self.user_id = user_id
