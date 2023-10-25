@@ -67,7 +67,7 @@ def run_test():
 
 @app.route('/eb')
 def run_eb():
-    return 'eb-live v7.4'
+    return 'eb-live v7.5'
 
 def save_chat_history(chat_history):
     today = datetime.utcnow().strftime("%Y-%m-%d")
