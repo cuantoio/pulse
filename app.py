@@ -67,7 +67,7 @@ def run_test():
 
 @app.route('/eb')
 def run_eb():
-    return 'eb-live v7.6'
+    return 'eb-live alpha tri v1.0'
 
 def save_chat_history(chat_history):
     today = datetime.utcnow().strftime("%Y-%m-%d")
@@ -886,10 +886,10 @@ class Collection:
         self.metadatas.extend(metadatas)
         self.ids.extend(ids)
 
-        for doc, meta, doc_id in zip(documents, metadatas, ids):
+        for doc, meta in zip(documents, metadatas):
             item = {
                 'UserId': self.user_id,
-                'collection_document_id': f'{self.timestamp}_{doc_id}',
+                'timestamp': f'{self.timestamp}',
                 'document': doc,
                 'metadata': meta
             }
@@ -922,14 +922,30 @@ class Collection:
         return [self.documents[i] for i in top_indices]
 
 class TriDB_client:
+    collections = []  # Class variable to store all created collections
+
     @staticmethod
     def create_collection(user_id, timestamp):
-        collection = Collection(user_id, timestamp)
-        return collection
+        # Before creating, check if collection already exists
+        if not TriDB_client.collection_exists(user_id):
+            collection = Collection(user_id, timestamp)
+            TriDB_client.collections.append(collection)
+            return collection
+        else:
+            # If collection exists, return it
+            return TriDB_client.get_collection(user_id, timestamp)
 
     @staticmethod
     def get_collection(user_id, timestamp):
-        return Collection(user_id, timestamp)
+        for collection in TriDB_client.collections:
+            if collection.user_id == user_id:
+                return collection
+        # If not found, create a new one
+        return TriDB_client.create_collection(user_id, timestamp)
+
+    @staticmethod
+    def collection_exists(user_id):
+        return any(collection.user_id == user_id for collection in TriDB_client.collections)
         
 @app.route('/tri', methods=['POST'])
 def triChat():
@@ -939,23 +955,26 @@ def triChat():
     gpt_prompt =  data.get('prompt')
 
     timestamp = datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S")
-    print(userId, timestamp)
-    # collection = TriDB_client.create_collection(user_id, timestamp)
+    
+    # Check if collection with userId exists
+    if not TriDB_client.collection_exists(userId):
+        collection = TriDB_client.create_collection(userId, timestamp)
+    else:
+        collection = TriDB_client.get_collection(userId, timestamp)
 
-    # # add to memory
-    # collection.add(
-    #     documents=[gpt_prompt],
-    #     metadatas=[{"source": "chat"}],
-    # )
+    # add to memory
+    collection.add(
+        documents=[gpt_prompt],
+        metadatas=[{"source": "chat"}],
+    )
 
     # Long-term memory
-    # results = collection.query(
-    #     query_texts=[gpt_prompt],
-    #     n_results=3
-    # )
+    results = collection.query(
+        query_texts=[gpt_prompt],
+        n_results=3
+    )
 
-    # memory = "\n".join(results)
-    memory = "memory under construction"
+    memory = "\n".join(results)
 
     # Use chat-based model
     response = openai.ChatCompletion.create(
@@ -979,10 +998,10 @@ def triChat():
 
     gpt_response = response.choices[0].message['content'].strip()
 
-    # collection.add(
-    #     documents=["Tri: "+gpt_response],
-    #     metadatas=[{"source": "chat"}],
-    # )
+    collection.add(
+        documents=["Tri: "+gpt_response],
+        metadatas=[{"source": "chat"}],
+    )
 
     print(gpt_response)
     return jsonify(gpt_response)
