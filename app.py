@@ -67,7 +67,7 @@ def run_test():
 
 @app.route('/eb')
 def run_eb():
-    return 'eb-live alpha tri v1.0'
+    return 'eb-live alpha tri v1.01'
 
 def save_chat_history(chat_history):
     today = datetime.utcnow().strftime("%Y-%m-%d")
@@ -951,9 +951,9 @@ class TriDB_client:
 def triChat():
     # User data and query
     data = request.json
-    userId = data.get('userId', 'noname')
+    userId = data.get('username', 'noname')
     gpt_prompt =  data.get('prompt')
-
+    print(userId)
     timestamp = datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S")
     
     # Check if collection with userId exists
@@ -982,12 +982,12 @@ def triChat():
         messages=[
             {
                 "role": "system",
-                "content": f"respond in less than 92 characters. mimic their tone. help them grow. IF they ask, guide them to earn, save and invest better."
+                "content": f"respond in less than 92 characters. mimic their tone. help them grow."
             },
             {
                 "role": "function",
                 "name": "Tri",
-                "content": "respond as their money buddy."
+                "content": "be the friend they need."
             },
             {
                 "role": "user", 
