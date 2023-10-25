@@ -408,41 +408,6 @@ def api_combined_summary():
 
     return jsonify({'trianglai_response': gpt_response, 'username': username})
 
-# default_portfolio = {
-#     'DLR': {'allocation': 18.58134053},
-#     'SPG': {'allocation': 5.96591771},
-#     'ARE': {'allocation': 5.21638715},
-#     'EQR': {'allocation': 7.01589525},
-#     'NVDA': {'allocation': 7.32163178},
-#     'EQIX': {'allocation': 7.94139182},
-#     'JNJ': {'allocation': 2.48767978},
-#     'VOO': {'allocation': 3.68012278},
-#     'AEP': {'allocation': 1.52550893},
-#     'MSFT': {'allocation': 3.86296522},
-#     'AVB': {'allocation': 1.10375472},
-#     'NEE': {'allocation': 1.76459701},
-#     'META': {'allocation': 6.89370643},
-#     'XLU': {'allocation': 0.52595852},
-#     'GOOGL': {'allocation': 2.48027440},
-#     'IAU': {'allocation': 0.77721259},
-#     'WELL': {'allocation': 0.37203234},
-#     'WY': {'allocation': 0.33976603},
-#     'BA': {'allocation': 1.28836035},
-#     'D': {'allocation': 0.14704975},
-#     'O': {'allocation': 0.10755437},
-#     'GLD': {'allocation': 0.20858496},
-#     'AGG': {'allocation': 0.03544005},
-#     'TLT': {'allocation': 0.59754389},
-#     'AMZN': {'allocation': 0.65378954},
-#     'RTX': {'allocation': 1.78152360},
-#     'AAPL': {'allocation': 3.65843559},
-#     'AMD': {'allocation': 3.81236177},
-#     'TSLA': {'allocation': 2.72006775},
-#     'ETH-USD': {'allocation': 7.12062853},
-#     'DOGE-USD': {'allocation': 0.01251686},
-#     'CASH': {'allocation': 0.00000000},
-# }
-
 PROFILE_PREFIX = 'user_profile/'
 
 def save_user_portfolio_to_dynamodb(dynamodb_entry):
