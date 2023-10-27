@@ -53,6 +53,7 @@ table_chat_history = dynamodb.Table(os.getenv("DYNAMODB_TABLE_CHAT_HISTORY"))
 table_payments = dynamodb.Table(os.getenv("DYNAMODB_TABLE_PAYMENTS")) 
 
 table_TriDB = dynamodb.Table(os.getenv("DYNAMODB_TABLE_TRIDB")) 
+table_metrics = dynamodb.Table(os.getenv("DYNAMODB_TABLE_METRICS")) 
 
 # Updated Redis setup
 try:
@@ -67,7 +68,7 @@ def run_test():
 
 @app.route('/eb')
 def run_eb():
-    return 'eb-live alpha tri v1.01'
+    return 'eb-live alpha tri v1.03'
 
 def save_chat_history(chat_history):
     today = datetime.utcnow().strftime("%Y-%m-%d")
@@ -946,7 +947,8 @@ class TriDB_client:
     @staticmethod
     def collection_exists(user_id):
         return any(collection.user_id == user_id for collection in TriDB_client.collections)
-        
+
+### -tri- ###
 @app.route('/tri', methods=['POST'])
 def triChat():
     # User data and query
@@ -1005,22 +1007,28 @@ def triChat():
 
     print(gpt_response)
     return jsonify(gpt_response)
-### ----- ###
+### -tri- ###
 
-@app.route('/journal', methods=['POST'])
-def journalChat():
+### -cfo- ###
+@app.route('/cfo', methods=['POST'])
+def triCFO():
     # User data and query
     data = request.json
+    userId = data.get('username', 'noname')
     gpt_prompt =  data.get('prompt')
-
-    name = 'tree'
-    user_id = 'tsm_123'
-    collection = TriDB_client.create_collection(user_id, name)
+    print(userId)
+    timestamp = datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S")
+    
+    # Check if collection with userId exists
+    if not TriDB_client.collection_exists(userId):
+        collection = TriDB_client.create_collection(userId, timestamp)
+    else:
+        collection = TriDB_client.get_collection(userId, timestamp)
 
     # add to memory
     collection.add(
         documents=[gpt_prompt],
-        metadatas=[{"source": "journal"}],
+        metadatas=[{"source": "chat"}],
     )
 
     # Long-term memory
@@ -1037,12 +1045,12 @@ def journalChat():
         messages=[
             {
                 "role": "system",
-                "content": f"respond in less than 92 characters. mimic their tone. help them trade better, improve their win rate."
+                "content": f"respond in less than 92 characters. mimic their tone. help them grow."
             },
             {
                 "role": "function",
-                "name": "Journal",
-                "content": "respond as a friend."
+                "name": "Tri",
+                "content": "be the personal CFO they need."
             },
             {
                 "role": "user", 
@@ -1054,12 +1062,157 @@ def journalChat():
     gpt_response = response.choices[0].message['content'].strip()
 
     collection.add(
-        documents=["Journal: "+gpt_response],
-        metadatas=[{"source": "journal"}],
+        documents=["Tri: "+gpt_response],
+        metadatas=[{"source": "chat"}],
     )
 
     print(gpt_response)
     return jsonify(gpt_response)
+### -cfo- ###
+
+### -me- ###
+@app.route('/me', methods=['POST'])
+def triME():
+    # User data and query
+    data = request.json
+    userId = data.get('username', 'noname')
+    gpt_prompt =  data.get('prompt')
+    print(userId)
+    timestamp = datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S")
+    
+    # Check if collection with userId exists
+    if not TriDB_client.collection_exists(userId):
+        collection = TriDB_client.create_collection(userId, timestamp)
+    else:
+        collection = TriDB_client.get_collection(userId, timestamp)
+
+    # add to memory
+    collection.add(
+        documents=[gpt_prompt],
+        metadatas=[{"source": "chat"}],
+    )
+
+    # Long-term memory
+    results = collection.query(
+        query_texts=[gpt_prompt],
+        n_results=3
+    )
+
+    memory = "\n".join(results)
+    resume = """Treebel Solimani Masihi
+    treebels@gmail.com | (707) 889-8200 | LinkedIn ______________________________________________________________________
+    PROFESSIONAL SUMMARY
+    Innovative AI/ML Software Developer with proven expertise in Generative AI, LLM, predictive analytics and a strong track record of delivering simple solutions for complex tasks. Specialized in translating complex business objectives into actionable strategies. Excellent communicator, bridging the gap between technical and non-technical stakeholders.
+    KEY SKILLS
+    • AI & Machine Learning: Proficiency in Large Language Models (LLM), Natural Language Processing (NLP), and Generative AI models using Python.
+    • Cloud Infrastructure & Scalability: Experience in designing, building, and optimizing scalable cloud systems tailored for data-intensive applications.
+    • Vector Storage & Database Systems: Expertise in database architecture, vector storage solutions, and performance optimization techniques.
+    • Semantic Data Analysis & Retrieval: Ability to understand and implement data storage and retrieval mechanisms based on semantic meaning, leveraging embeddings-based vector similarity search.
+    • Financial & Data Analytics: Strong background in financial forecasting, corporate finance, data analysis, and quantitative analytics.
+    PROFESSIONAL EXPERIENCE TriangleAI
+    Founder and AI/ML Software Developer | Nov 2021 – Present
+    • Developed a serverless web app using React, JavaScript, custom scalable APIs, Flask, Docker, and AWS.
+    • Wrote Python for price forecasting, autonomous AI agent and all TriangleAI algorithm APIs.
+    • Built the entire cloud infrastructure using AWS services including DynamoDB, Load Balancers, Elastic Beanstalk, Amplify, CloudFront, Route 53 and S3.
+    • Wrote AI/ML algorithms for AI recommendations, autonomous AI portfolio management, ML forecasting, autonomous learning agents.
+    • Delivered database system design, vector storage, search algorithms, performance benchmarking, system optimization.
+    
+    • Shipped Scenarios: Simulate the global pulse by searching any global event for deep portfolio analysis.
+    • Shipped Portfolios: Chat with your portfolio, Strategize, Optimize portfolios.
+    • Triangle AI delivers a minimum 150+ hour savings per prompt, 10K simulations in seconds and more.
+    Autodesk
+    Sr. AI/ML Software Developer | Apr 2021 - Oct 2021
+    • Delivered 96%+ accuracy on spend, sales and other forecasting models for executives and CFO staff.
+    • Developed an autonomous ML forecasting engine.
+    • Developed a Large Language Model (LLM) Transformer from scratch.
+    • Wrote scalable python algorithms for anomaly detection, decision tree classification, deep neural networks, linear regression forecasting and more.
+    • Championed digital transformation initiatives, partnering with senior leadership to provide critical financial model insights and forecasts.
+    • Developed and deployed ML techniques for end-user products, positioning the team as an essential resource for Sales and Finance.
+    Autodesk
+    AI/ML Software Developer | Oct 2018 - Apr 2021
+    • Lead development of a serverless AI hub using Django, JavaScript, custom scalable APIs, Docker, and AWS.
+    • Lead research and development using AWS cloud services including Lambda, SageMaker, API Gateway, Cognito, S3 and CloudFront.
+    • Designed and developed a central pricing database, utilizing data from several sources including Salesforce, Microsoft Azure, Snowflake and more.
+    • Wrote a pricing AI that analyzed over 300 price lists daily, delivering a scalable pricing hub, improving pricing strategy and end-user satisfaction.
+    • Developed a generative AI that provided robust reporting capabilities, culminating in an AI hub with several enterprise ML-powered products.
+    • Supported finance, sales, and support teams with forecasts, analytics, and NLP tools enhancing cross-functional decision-making.
+    EDUCATION
+    UC BERKELEY EXTENSION
+    Data Science Certificate | Python, Classification, Machine Learning, SQL, DB | Dec 2019
+    SONOMA STATE UNIVERSITY
+    
+    Bachelor of Science - BS, Finance | Corporate Finance, Investments, Economics | Dec 2013
+    """
+    # Use chat-based model
+    response = openai.ChatCompletion.create(
+        model="gpt-3.5-turbo",
+        messages=[
+            {
+                "role": "system",
+                "content": f"respond in less than 92 characters. mimic their tone. present me as their dream hire."
+            },
+            {
+                "role": "function",
+                "name": "Me",
+                "content": "be my best professional persona."
+            },
+            {
+                "role": "function",
+                "name": "resume",
+                "content": "resume:"+resume
+            },
+            {
+                "role": "user", 
+                "content": f"long context (do not repeat):{memory}. msg:{gpt_prompt}"
+            },
+        ],
+    )
+
+    gpt_response = response.choices[0].message['content'].strip()
+
+    collection.add(
+        documents=["Treebel:"+ gpt_response],
+        metadatas=[{"source": "chat"}],
+    )
+
+    print(gpt_response)
+    return jsonify(gpt_response)
+### -me- ###
+
+### -cta- ###
+@app.route('/metrics', methods=['POST'])
+def collect_metrics():
+    data = request.json
+    interactions = data.get('interactions', [])
+    
+    print("Received data:", data)
+
+    for interaction in interactions:
+        timestamp = datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S")
+        userId = interaction.get('username', 'noname')
+        metric_name = interaction.get('metric_name', 'nometric')
+
+        try:
+            # Insert the metric data into the DynamoDB table
+            table_metrics.put_item(
+                Item={
+                    'metric_name': metric_name,
+                    'timestamp': timestamp,
+                    'userId': userId
+                }
+            )
+
+        except ClientError as e:
+            print(e.response['Error']['Message'])
+            return jsonify({'message': 'Error recording metric'}), 500
+
+        except Exception as e:
+            print(str(e))
+            return jsonify({'message': 'Internal server error'}), 500
+
+    return jsonify({'message': 'Metrics recorded successfully'}), 201
+
+### -cta- ###
 
 if __name__ == "__main__":
     # app.run(port=5000)
