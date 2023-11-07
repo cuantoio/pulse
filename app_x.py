@@ -68,7 +68,7 @@ def run_test():
 
 @app.route('/eb')
 def run_eb():
-    return 'eb-live alpha tri v2'
+    return 'eb-live alpha tri v1.03'
 
 def save_chat_history(chat_history):
     today = datetime.utcnow().strftime("%Y-%m-%d")
@@ -1009,6 +1009,196 @@ def triChat():
     return jsonify(gpt_response)
 ### -tri- ###
 
+### -cfo- ###
+@app.route('/fai', methods=['POST'])
+def triFAI():
+    # User data and query
+    data = request.json
+    userId = data.get('username', 'noname')
+    gpt_prompt = data.get('prompt')
+    print(userId)
+    # For this example, we will ignore the timestamp when retrieving collections
+    # This is assuming all user messages are in a single collection
+    timestamp = 'collection_timestamp'  # Replace this with a static timestamp or a user-specific identifier
+    
+    # Ensure the collection is retrieved or created
+    collection = TriDB_client.get_collection(userId, timestamp)
+    if not collection:
+        collection = TriDB_client.create_collection(userId, timestamp)
+        # Here you would load existing documents from DynamoDB into the collection
+        # collection.load_from_dynamodb()
+
+    # Query the long-term memory without adding the query as a document
+    results = collection.query(
+        query_texts=[gpt_prompt],
+        n_results=2
+    )
+
+    print(results)
+
+    
+    # Ensure the collection is retrieved or created
+    collection = TriDB_client.get_collection(userId, timestamp)
+    if not collection:
+        collection = TriDB_client.create_collection(userId, timestamp)
+
+    # Add to memory
+    collection.add(
+        documents=[gpt_prompt],
+        metadatas=[{"source": "chat"}],
+        ids=[timestamp]
+    )
+
+    # Query the long-term memory
+    results = collection.query(
+        query_texts=[gpt_prompt],
+        n_results=3
+    )
+
+    print(results)
+
+    memory = "\n".join(results)
+
+    # personality = """Cognitive Abilities: 8.5, Self-awareness: 9.0, Empathy: 7.5, 
+    # Resilience: 7.0, Motivation: 7.8, Adaptability: 7.2, Moral and Ethical Values: 8.0,
+    # Intuition: 9.2, Mindfulness: 8.5, Aspirations and Goals: 7.3, 
+    # Social Skills: 6.5, Curiosity: 8.7"""
+    drivers = "Revenue, EBITDA, CashFlow, ROE, CAC, LTV, GPM"
+    data = """- Revenue: Target: $500,000 | Actual: $480,000 | Variance: -$20,000 | Variance Percentage: -4%
+            - COGS: Target: $250,000 | Actual: $260,000 | Variance: $10,000 | Variance Percentage: 4%
+            - Gross Profit: Target: $250,000 | Actual: $220,000 | Variance: -$30,000 | Variance Percentage: -12%
+            - Operating Expenses: Target: $100,000 | Actual: $105,000 | Variance: $5,000 | Variance Percentage: 5%
+            - EBITDA: Target: $150,000 | Actual: $115,000 | Variance: -$35,000 | Variance Percentage: -23.33%
+            - Net Income: Target: $90,000 | Actual: $70,000 | Variance: -$20,000 | Variance Percentage: -22.22%
+            - Operating Cash Flow: Target: $120,000 | Actual: $95,000 | Variance: -$25,000 | Variance Percentage: -20.83%
+            - Free Cash Flow: Target: $80,000 | Actual: $60,000 | Variance: -$20,000 | Variance Percentage: -25%
+            - Debt to Equity: Target: 1.5 | Actual: 1.8 | Variance: 0.3 | Variance Percentage: 20%
+            - Current Ratio: Target: 2.0 | Actual: 1.5 | Variance: -0.5 | Variance Percentage: -25%
+            """
+
+    # Use chat-based model
+    response = openai.ChatCompletion.create(
+        model="gpt-3.5-turbo",
+        messages=[
+            {
+                "role": "user",
+                "content": f"data:[{data}]:: Good afternoon team. As we head into the next quarter, I want to focus on the KPIs that are critical to our C-Suite scorecard. How are we tracking against our targets?"
+            },
+            {
+                "role": "system",
+                "content": "query: [Metric, Target, Actual, Variance, Variance_Percentage Revenue, 500000, 480000, -20000, -4%] Good afternoon. Starting with Revenue, our target was $500,000, but we've actually hit $480,000, resulting in a variance of -$20,000, which is a -4% deviation from our goal."
+            },
+            {
+                "role": "user",
+                "content": f"data:[{data}]:: That's a concern. Are our Cost of Goods Sold (COGS) on target?"
+            },
+            {
+                "role": "system",
+                "content": "query: [Metric, Target, Actual, Variance, Variance_Percentage Revenue, 500000, 480000, -20000, -4% COGS, 250000, 260000, 10000, 4%] Our COGS have exceeded the target. We aimed for $250,000, but actuals came in at $260,000, creating a negative variance of $10,000, or 4% over our projections."
+            },  
+            {
+                "role": "user", 
+                "content": f"data:[{data}]:: {gpt_prompt}"
+            },
+        ],
+    )
+
+    gpt_response = response.choices[0].message['content'].strip()
+    
+    # collection_h = TriDB_client.get_collection(userId, timestamp)
+    # if not collection_h:
+    #     collection_h = TriDB_client.create_collection(userId, timestamp)
+
+    collection.add(
+        documents=["Fai: "+gpt_response],
+        metadatas=[{"source": "chat"}],
+        ids=[timestamp]
+    )
+
+    print(gpt_response)
+    return jsonify(gpt_response)
+### -cfo- ###
+
+### -assistants- ###
+OPENAI_API_KEY = 'your_api_key'
+BASE_URL = 'https://api.openai.com/v1/assistants'
+HEADERS = {
+    'Content-Type': 'application/json',
+    'Authorization': f'Bearer {OPENAI_API_KEY}',
+    'OpenAI-Beta': 'assistants=v1'
+}
+
+def stream_template(template_name, **context):
+    app.update_template_context(context)
+    t = app.jinja_env.get_template(template_name)
+    rv = t.stream(context)
+    rv.disable_buffering()  # Disable buffering
+    return rv
+
+@app.route('/create_assistant', methods=['POST'])
+def create_assistant():
+    data = request.json
+    response = requests.post(BASE_URL, headers=HEADERS, json=data)
+    return jsonify(response.json()), response.status_code
+
+@app.route('/retrieve_assistant/<assistant_id>', methods=['GET'])
+def retrieve_assistant(assistant_id):
+    response = requests.get(f'{BASE_URL}/{assistant_id}', headers=HEADERS)
+    return jsonify(response.json()), response.status_code
+
+@app.route('/modify_assistant/<assistant_id>', methods=['POST'])
+def modify_assistant(assistant_id):
+    data = request.json
+    response = requests.post(f'{BASE_URL}/{assistant_id}', headers=HEADERS, json=data)
+    return jsonify(response.json()), response.status_code
+
+@app.route('/stream_response')
+def stream_response():
+    # A dummy generator for streaming, replace with your actual data source
+    def generate():
+        for i in range(100):  # Replace with real data streaming logic
+            yield f"data:{json.dumps({'number': i})}\n\n"
+    return Response(generate(), mimetype='text/event-stream')
+
+### -assistants- ###
+
+### -cta- ###
+from werkzeug.utils import secure_filename
+
+@app.route('/metrics', methods=['POST'])
+def collect_metrics():
+    data = request.json
+    interactions = data.get('interactions', [])
+    
+    print("Received data:", data)
+
+    for interaction in interactions:
+        timestamp = datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S")
+        userId = interaction.get('username', 'noname')
+        metric_name = interaction.get('metric_name', 'nometric')
+
+        try:
+            # Insert the metric data into the DynamoDB table
+            table_metrics.put_item(
+                Item={
+                    'metric_name': metric_name,
+                    'timestamp': timestamp,
+                    'userId': userId
+                }
+            )
+
+        except ClientError as e:
+            print(e.response['Error']['Message'])
+            return jsonify({'message': 'Error recording metric'}), 500
+
+        except Exception as e:
+            print(str(e))
+            return jsonify({'message': 'Internal server error'}), 500
+
+    return jsonify({'message': 'Metrics recorded successfully'}), 201
+
+### -cta- ###
+
 ### -upload- ###
 S3_BUCKET = 'tri-cfo-uploads'
 
@@ -1051,193 +1241,6 @@ def upload_file():
             "file_url": file_url
         }
 ### -upload- ###
-
-### -cfo- ###
-@app.route('/fai', methods=['POST'])
-def triFAI():
-    # User data and query
-    data = request.json
-    userId = data.get('username', 'noname')
-    gpt_prompt = data.get('prompt')
-    # print(userId)
-    # For this example, we will ignore the timestamp when retrieving collections
-    # This is assuming all user messages are in a single collection
-    timestamp = 'collection_timestamp'  # Replace this with a static timestamp or a user-specific identifier
-    
-    # Ensure the collection is retrieved or created
-    collection = TriDB_client.get_collection(userId, timestamp)
-    if not collection:
-        collection = TriDB_client.create_collection(userId, timestamp)
-        # Here you would load existing documents from DynamoDB into the collection
-        # collection.load_from_dynamodb()
-
-    # Query the long-term memory without adding the query as a document
-    results = collection.query(
-        query_texts=[gpt_prompt],
-        n_results=2
-    )
-
-    # print(results)
-    
-    # Ensure the collection is retrieved or created
-    collection = TriDB_client.get_collection(userId, timestamp)
-    if not collection:
-        collection = TriDB_client.create_collection(userId, timestamp)
-
-    # Add to memory
-    collection.add(
-        documents=[gpt_prompt],
-        metadatas=[{"source": "chat"}],
-        ids=[timestamp]
-    )
-
-    # Query the long-term memory
-    results = collection.query(
-        query_texts=[gpt_prompt],
-        n_results=3
-    )
-
-    # print(results)
-
-    memory = "\n".join(results)
-
-    # personality = """Cognitive Abilities: 8.5, Self-awareness: 9.0, Empathy: 7.5, 
-    # Resilience: 7.0, Motivation: 7.8, Adaptability: 7.2, Moral and Ethical Values: 8.0,
-    # Intuition: 9.2, Mindfulness: 8.5, Aspirations and Goals: 7.3, 
-    # Social Skills: 6.5, Curiosity: 8.7"""
-    drivers = "Revenue, EBITDA, CashFlow, ROE, CAC, LTV, GPM"
-    # data = """- Revenue: Target: $500,000 | Actual: $480,000 | Variance: -$20,000 | Variance Percentage: -4%
-    #         - COGS: Target: $250,000 | Actual: $260,000 | Variance: $10,000 | Variance Percentage: 4%
-    #         - Gross Profit: Target: $250,000 | Actual: $220,000 | Variance: -$30,000 | Variance Percentage: -12%
-    #         - Operating Expenses: Target: $100,000 | Actual: $105,000 | Variance: $5,000 | Variance Percentage: 5%
-    #         - EBITDA: Target: $150,000 | Actual: $115,000 | Variance: -$35,000 | Variance Percentage: -23.33%
-    #         - Net Income: Target: $90,000 | Actual: $70,000 | Variance: -$20,000 | Variance Percentage: -22.22%
-    #         - Operating Cash Flow: Target: $120,000 | Actual: $95,000 | Variance: -$25,000 | Variance Percentage: -20.83%
-    #         - Free Cash Flow: Target: $80,000 | Actual: $60,000 | Variance: -$20,000 | Variance Percentage: -25%
-    #         - Debt to Equity: Target: 1.5 | Actual: 1.8 | Variance: 0.3 | Variance Percentage: 20%
-    #         - Current Ratio: Target: 2.0 | Actual: 1.5 | Variance: -0.5 | Variance Percentage: -25%
-    #         """
-    data = """	in $ Billions			
-            KPI	Target	Actual	Variance	Variance  (%)
-            Revenue	58.00	57.00	-1.00	-1.72%
-            COGS	21.00	21.20	0.20	0.95%
-            Gross Profit	37.00	35.80	-1.20	-3.24%
-            Operating Expenses	20.50	20.70	0.20	0.98%
-            EBITDA	15.50	15.00	-0.50	-3.23%
-            Net Income	13.00	12.60	-0.40	-3.08%
-            Operating Cash Flow	14.00	12.00	-2.00	-14.29%
-            Free Cash Flow	10.00	8.00	-2.00	-20.00%
-            Debt to Equity Ratio	0.80	1.30	0.50	62.50%
-            Current Ratio	2.00	1.40	-0.60	-30.00%"""
-
-    if "the reason" in gpt_prompt:
-        data = """US$ in millions						
-12 months ended:	Jul 29, 2023	Jul 30, 2022	Jul 31, 2021	Jul 25, 2020	Jul 27, 2019	Jul 28, 2018
-Product	43,142 	38,018 	36,014 	35,978 	39,005 	36,709 
-Service	13,856 	13,539 	13,804 	13,323 	12,899 	12,621 
-Revenue	56,998 	51,557 	49,818 	49,301 	51,904 	49,330 
-Product	(16,590)	(14,814)	(13,300)	(13,199)	(14,863)	(14,427)
-Service	(4,655)	(4,495)	(4,624)	(4,419)	(4,375)	(4,297)
-Cost of sales	(21,245)	(19,309)	(17,924)	(17,618)	(19,238)	(18,724)
-Gross margin	35,753 	32,248 	31,894 	31,683 	32,666 	30,606 
-Research and development	(7,551)	(6,774)	(6,549)	(6,347)	(6,577)	(6,332)
-Sales and marketing	(9,880)	(9,085)	(9,259)	(9,169)	(9,571)	(9,242)
-General and administrative	(2,478)	(2,101)	(2,152)	(1,925)	(1,827)	(2,144)
-Amortization of purchased intangible assets	(282)	(313)	(215)	(141)	(150)	(221)
-Restructuring and other charges	(531)	(6)	(886)	(481)	(322)	(358)
-Operating expenses	(20,722)	(18,279)	(19,061)	(18,063)	(18,447)	(18,297)
-Operating income	15,031 	13,969 	12,833 	13,620 	14,219 	12,309 
-Interest income	962 	476 	618 	920 	1,308 	1,508 
-Interest expense	(427)	(360)	(434)	(585)	(859)	(943)
-Other income (loss), net	(248)	392 	245 	15 	(97)	165 
-Interest and other income (loss), net	287 	508 	429 	350 	352 	730 
-Income before provision for income taxes	15,318 	14,477 	13,262 	13,970 	14,571 	13,039 
-Provision for income taxes	(2,705)	(2,665)	(2,671)	(2,756)	(2,950)	(12,929)
-Net income	12,613 	11,812 	10,591 	11,214 	11,621 	110 """
-
-    # Use chat-based model
-    response = openai.ChatCompletion.create(
-        model="gpt-4-1106-preview",
-        messages=[
-            {
-                "role": "system",
-                "content": "I can provide analysis based on data. I provide recommendations in concise (<180 characters) and direct responses."
-            },
-            {
-                "role": "user",
-                "content": f"data:[{data}]:: Good afternoon team. As we head into the next quarter, I want to focus on the KPIs that are critical to our C-Suite scorecard. How are we tracking against our targets?"
-            },
-            {
-                "role": "system",
-                "content": "query: [Metric, Target, Actual, Variance, Variance_Percentage Revenue, 500000, 480000, -20000, -4%] Good afternoon. Starting with Revenue, our target was $500,000, but we've actually hit $480,000, resulting in a variance of -$20,000, which is a -4% deviation from our goal."
-            },
-            {
-                "role": "user",
-                "content": f"data:[{data}]:: That's a concern. Are our Cost of Goods Sold (COGS) on target?"
-            },
-            {
-                "role": "system",
-                "content": "query: [Metric, Target, Actual, Variance, Variance_Percentage Revenue, 500000, 480000, -20000, -4% COGS, 250000, 260000, 10000, 4%] Our COGS have exceeded the target. We aimed for $250,000, but actuals came in at $260,000, creating a negative variance of $10,000, or 4% over our projections."
-            },  
-            {
-                "role": "user", 
-                "content": f"data:[{data}]:: {gpt_prompt}"
-            },
-        ],
-    )
-
-    gpt_response = response.choices[0].message['content'].strip()
-    
-    # collection_h = TriDB_client.get_collection(userId, timestamp)
-    # if not collection_h:
-    #     collection_h = TriDB_client.create_collection(userId, timestamp)
-
-    collection.add(
-        documents=["Fai: "+gpt_response],
-        metadatas=[{"source": "chat"}],
-        ids=[timestamp]
-    )
-
-    print(gpt_response)
-    return jsonify(gpt_response)
-### -cfo- ###
-
-### -cta- ###
-from werkzeug.utils import secure_filename
-
-@app.route('/metrics', methods=['POST'])
-def collect_metrics():
-    data = request.json
-    interactions = data.get('interactions', [])
-    
-    print("Received data:", data)
-
-    for interaction in interactions:
-        timestamp = datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S")
-        userId = interaction.get('username', 'noname')
-        metric_name = interaction.get('metric_name', 'nometric')
-
-        try:
-            # Insert the metric data into the DynamoDB table
-            table_metrics.put_item(
-                Item={
-                    'metric_name': metric_name,
-                    'timestamp': timestamp,
-                    'userId': userId
-                }
-            )
-
-        except ClientError as e:
-            print(e.response['Error']['Message'])
-            return jsonify({'message': 'Error recording metric'}), 500
-
-        except Exception as e:
-            print(str(e))
-            return jsonify({'message': 'Internal server error'}), 500
-
-    return jsonify({'message': 'Metrics recorded successfully'}), 201
-
-### -cta- ###
 
 if __name__ == "__main__":
     app.run(port=5000)
