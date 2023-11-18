@@ -68,7 +68,7 @@ def run_test():
 
 @app.route('/eb')
 def run_eb():
-    return 'eb-live alpha tri v2'
+    return 'eb-live alpha tri v2.1'
 
 def save_chat_history(chat_history):
     today = datetime.utcnow().strftime("%Y-%m-%d")
@@ -955,14 +955,21 @@ def triChat():
     userId = data.get('username', 'noname')
     gpt_prompt =  data.get('prompt')
     print(userId)
-    timestamp = datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S")
     
-    # Check if collection with userId exists
-    if not TriDB_client.collection_exists(userId):
+    timestamp = 'collection_timestamp'  # Replace this with a static timestamp or a user-specific identifier
+    
+    # Ensure the collection is retrieved or created
+    collection = TriDB_client.get_collection(userId, timestamp)
+    if not collection:
         collection = TriDB_client.create_collection(userId, timestamp)
-    else:
-        collection = TriDB_client.get_collection(userId, timestamp)
+        # Here you would load existing documents from DynamoDB into the collection
+        # collection.load_from_dynamodb()
 
+    # Query the long-term memory without adding the query as a document
+    results = collection.query(
+        query_texts=[gpt_prompt],
+        n_results=2
+    )
     # add to memory
     collection.add(
         documents=[gpt_prompt],
@@ -979,21 +986,15 @@ def triChat():
 
     # Use chat-based model
     response = openai.ChatCompletion.create(
-        # model="gpt-3.5-turbo",
-        model="ft:davinci-002:ftjob-OHVJhdJc8SfozoIOsasKL1X3",
+        model="gpt-4-1106-preview", 
         messages=[
             {
                 "role": "system",
-                "content": f"respond in less than 92 characters. mimic their tone. help them grow."
-            },
-            {
-                "role": "function",
-                "name": "Tri",
-                "content": "be the friend they need."
+                "content": f"you are a realtor. warm up the given leads by sending messages. the goal is to convert them into home buyers."
             },
             {
                 "role": "user", 
-                "content": f"long context (do not repeat):{memory}. msg:{gpt_prompt}"
+                "content": f"long context (do not repeat):{memory}. lead data:{gpt_prompt}"
             },
         ],
     )
@@ -1240,5 +1241,5 @@ def collect_metrics():
 ### -cta- ###
 
 if __name__ == "__main__":
-    app.run(port=5000)
-    # app.run(host="0.0.0.0", port=8080)
+    # app.run(port=5000)
+    app.run(host="0.0.0.0", port=8080)
