@@ -68,7 +68,7 @@ def run_test():
 
 @app.route('/eb')
 def run_eb():
-    return 'eb-live alpha tri v3.0'
+    return 'eb-live alpha tri v2.1'
 
 def save_chat_history(chat_history):
     today = datetime.utcnow().strftime("%Y-%m-%d")
@@ -875,99 +875,103 @@ from sklearn.metrics.pairwise import linear_kernel
 ### Tri ###
 class Collection:
     def __init__(self, user_id):
-        self.user_id = user_id        
-        self.table = table_TriDB  # DynamoDB table name
-        self.vectorizer = TfidfVectorizer(stop_words='english')
+        self.user_id = user_id
+        self.timestamps = []
+        self.documents = []
+        self.metadatas = []
+        self.ids = []
         self.embeddings = np.array([])  # Initialize as a NumPy array for consistency
+        self.vectorizer = TfidfVectorizer(stop_words='english')
 
-    def fit_vectorizer_with_dynamodb(self):
-        # Fetch documents from DynamoDB
-        response = self.table.scan()
-        documents = [item['document'] for item in response['Items'] if item['UserId'] == self.user_id]
-
-        if not documents:
+    def fit_vectorizer(self):
+        # This function should be called once a sufficient amount of documents have been collected
+        if not self.documents:
             raise ValueError("No documents to fit the vectorizer.")
-        self.vectorizer.fit(documents)
+        self.vectorizer.fit(self.documents)
 
-    def add_to_dynamodb(self, documents=[], metadatas=[], timestamps=[]):
+    def add(self, documents=[], metadatas=[], timestamps=[]):
         if not documents:
             return  # Nothing to add
 
-        for doc, metadata, timestamp in zip(documents, metadatas, timestamps):
-            try:
-                # Assuming metadata is already in a format that DynamoDB can accept
-                self.table.put_item(
-                    Item={
-                        'UserId': self.user_id,  # Make sure this is a string
-                        'document': doc,  # Ensure this is a string
-                        'metadata': metadata,  # Directly passed without json.dumps
-                        'timestamp': timestamp  # Ensure this is in the correct format
-                    }
-                )
-                # Consider adding logging here for successful operations
-            except Exception as e:
-                # Log the error
-                print(f"Error adding document: {e}")
-        
-        # Update the vectorizer
-        self.fit_vectorizer_with_dynamodb()
+        self.documents.extend(documents)
+        self.metadatas.extend(metadatas)
+        self.timestamps.extend(timestamps)
 
-    def query_from_dynamodb(self, query_texts, n_results=1):
-        if not query_texts:
+        # Check if the vectorizer is already fitted
+        if not hasattr(self.vectorizer, 'vocabulary_'):
+            self.fit_vectorizer()
+
+        new_embeddings = self.vectorizer.transform(documents).toarray()
+
+        # Concatenate the new embeddings to the existing ones
+        self.embeddings = np.vstack([self.embeddings, new_embeddings]) if self.embeddings.size else new_embeddings
+
+    def query(self, query_texts, n_results=1):
+        if self.embeddings.size == 0:
             return []
 
-        # Fetch and transform documents from DynamoDB
-        response = self.table.scan(
-            FilterExpression=Key('UserId').eq(self.user_id)
-        )
-        documents = [item['document'] for item in response['Items']]
-
-        if not documents:
-            return []
-
-        # Transform documents using the already fitted vectorizer
-        self.fit_vectorizer_with_dynamodb()  # Ensure vectorizer is up-to-date
-        document_embeddings = self.vectorizer.transform(documents).toarray()
+        # Transform the query texts using the already fitted vectorizer
         query_embedding = self.vectorizer.transform(query_texts)
 
         # Compute similarities with each document
-        cosine_similarities = linear_kernel(query_embedding, document_embeddings).flatten()
+        cosine_similarities = linear_kernel(query_embedding, self.embeddings).flatten()
 
         # Get indices of top n_results similar documents
+        # We should sort by similarities and then take the last n_results items
         top_indices = cosine_similarities.argsort()[:-(n_results+1):-1]
-        top_indices = top_indices[:min(len(documents), n_results)]
 
-        # Return top documents using the top_indices
-        return [documents[i] for i in top_indices]
+        # Ensure we get the requested number of results or the maximum available
+        top_indices = top_indices[:min(len(self.documents), n_results)]
+
+        # Return top documents using the top_indices to index into self.documents
+        return [self.documents[i] for i in top_indices]
+
+class TriDB_client:
+    collections = {}  # Using a dictionary with (user_id, timestamp) as key
+
+    @staticmethod
+    def create_collection(user_id):
+        key = (user_id)
+        if key not in TriDB_client.collections:
+            collection = Collection(user_id)
+            TriDB_client.collections[key] = collection
+        return TriDB_client.collections[key]
+
+    @staticmethod
+    def get_collection(user_id):
+        key = (user_id)
+        return TriDB_client.collections.get(key, None)
+
+    @staticmethod
+    def collection_exists(user_id):
+        key = (user_id)
+        return key in TriDB_client.collections
 
 ### -tri- ###
 def context_classifier(content):
 
     tags = ['chat', 'person', 'organization', 'action', 'object', 'etc']
-    
-    try:
-        context_classifier = openai.ChatCompletion.create(
-            model="gpt-3.5-turbo",
-            messages=[
-                {
-                    "role": "system",
-                    "content": f"turn inputs to keys and values. available tags: {tags} format must be: [['content','value'],['action','value']]."
-                    # "content": "turn inputs to keys and values. respond with dict only. format must be: [{'content': content, 'tags': chat, action, timeline, object etc.}]"
-                },
-                {
-                    "role": "user", 
-                    "content": content
-                },
-            ],
-        )
+    # Use chat-based model
+    context_classifier = openai.ChatCompletion.create(
+        model="gpt-3.5-turbo",
+        messages=[
+            {
+                "role": "system",
+                "content": f"turn inputs to keys and values. available tags: {tags} format must be: [['content','value'],['action','value']]."
+                # "content": "turn inputs to keys and values. respond with dict only. format must be: [{'content': content, 'tags': chat, action, timeline, object etc.}]"
+            },
+            {
+                "role": "user", 
+                "content": content
+            },
+        ],
+    )
 
-        context_layers = context_classifier.choices[0].message['content'].strip()
-        print(context_layers)
+    context_layers = context_classifier.choices[0].message['content'].strip()
+    print(context_layers)
 
-        # Use regex to find the list-like pattern in the string
-        match = re.search(r"\[\[.*?\]\]", context_layers)
-    except: 
-        match = None
+    # Use regex to find the list-like pattern in the string
+    match = re.search(r"\[\[.*?\]\]", context_layers)
     
     if match:
         list_string = match.group(0)
@@ -1005,58 +1009,63 @@ def triChat():
     gpt_prompt =  data.get('prompt')
     print(userId)
     
-    # if 'analyze' in gpt_prompt:
-    #     # Example usage
-    #     print('here')
-    #     pandas_task = f"""import pandas as pd
-    #     # add code to return string summary for {gpt_prompt}"""
+    if 'analyze' in gpt_prompt:
+        # Example usage
+        print('here')
+        pandas_task = f"""import pandas as pd
+        # add code to return string summary for {gpt_prompt}"""
 
-    #     pandas_code = pdGPT(pandas_task)
-    #     print(pandas_code)
-    #     try:
-    #         pandas_response = exec(pandas_code)
-    #     except:
-    #         print('failed')
-    #         pandas_response = ''
-    # else:
-    #     print('no analyze')
-    #     pandas_response = ''
+        pandas_code = pdGPT(pandas_task)
+        print(pandas_code)
+        try:
+            pandas_response = exec(pandas_code)
+        except:
+            print('failed')
+            pandas_response = ''
+    else:
+        print('no analyze')
+        pandas_response = ''
 
     timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
     # Ensure the collection is retrieved or created
-    collection = Collection(userId)
+    collection = TriDB_client.get_collection(userId)
+    if not collection:
+        collection = TriDB_client.create_collection(userId)
 
     # context classifier
     context_layers = context_classifier(gpt_prompt)
 
-    try:
-        # add context key and values
+    # add context key and values
+    for i in range(len(context_layers)):
+
+        context_key = context_layers[i][0]
+        context_value = context_layers[i][1]
+    #     print(i, context_key, context_value)    
+        
+        collection.add(
+            documents=[context_value],
+            metadatas=[{"source": context_key}],
+            timestamps=[timestamp]
+        )
+
+        # multi-context search 
+        search_results = []
+
         for i in range(len(context_layers)):
 
             context_key = context_layers[i][0]
-            context_value = context_layers[i][1]
+        #     print(i, context_key)    
+            
+            # Query the collection
+            results = collection.query(
+                query_texts=[gpt_prompt + context_key],
+                n_results=3
+            )
+            print('results',results, '\nquery texts',gpt_prompt, context_key)
 
-            collection.add_to_dynamodb(
-                documents=[context_value],
-                metadatas=[context_key],
-                timestamps=[timestamp],
-            )        
-
-            # multi-context search 
-            search_results = []
-
-            for i in range(len(context_layers)):
-
-                context_key = context_layers[i][0]
-
-                results = collection.query_from_dynamodb([gpt_prompt + context_key], n_results=3)
-
-            search_results.append(results)
-            print('search_results',search_results,'\n')
-        
-    except:
-        unique_strings = ['']
+        search_results.append(results)
+        print('search_results',search_results,'\n')
 
     # full retrieved context
     # Flatten the list of lists and remove duplicates using a set
@@ -1064,23 +1073,27 @@ def triChat():
 
     # Join the unique strings
     joined_string = ' '.join(unique_strings)
+
+    # Query the collection
+    results = collection.query(
+        query_texts=[gpt_prompt + context_key],
+        n_results=3
+    )
     
     # full context
-    if userId == 'Alpha':
-        userId = "Steve"
-    full_context = f"{timestamp}. past chats: {joined_string}. {pandas_response}. user msg:'{userId}': {gpt_prompt}."
+    full_context = f"{timestamp}. {joined_string}. {pandas_response}. user '{userId}': {gpt_prompt}."
 
-    collection.add_to_dynamodb(
+    collection.add(
         documents=[full_context],
-        metadatas=[unique_strings],
-        timestamps=[timestamp],
-    )        
+        metadatas=[{"source": "my_source"}],
+        timestamps=[timestamp]
+    )
 
     you_are = "Hi, I'm Tri. I help you make more decicive action based on all context given"
 
     # response
     response = openai.ChatCompletion.create(
-        model="ft:gpt-3.5-turbo-1106:triangleai::8U4LPTy8", #"gpt-3.5-turbo", #"gpt-4-1106-preview"
+        model="gpt-3.5-turbo", #"gpt-4-1106-preview"
         messages=[
             {
                 "role": "system",
@@ -1099,20 +1112,18 @@ def triChat():
     # context classifier
     context_layers_response = context_classifier(gpt_response)
 
-    try:
-        # add context key and values
-        for i in range(len(context_layers_response)):
+    # add context key and values
+    for i in range(len(context_layers_response)):
 
-            context_key = context_layers_response[i][0]
-            context_value = context_layers_response[i][1]
-
-            collection.add_to_dynamodb(
-                documents=[context_value],
-                metadatas=[context_layers_response],
-                timestamps=[timestamp],
-            ) 
-    except:
-        print('context layers issue')
+        context_key = context_layers_response[i][0]
+        context_value = context_layers_response[i][1]
+    #     print(i, context_key, context_value)    
+        
+        collection.add(
+            documents=[context_value],
+            metadatas=[{"source": context_key}],
+            timestamps=[timestamp]
+        )
 
     return jsonify(gpt_response)
 ### -tri- ###
@@ -1162,35 +1173,19 @@ def upload_file():
     print("File Data:", data)
     print("UserID:", userId)
 
-    you_are = "Hi, I'm Tri. I help you make more decicive action based on all context given"
-
-    # response
-    response = openai.ChatCompletion.create(
-        model="ft:gpt-3.5-turbo-1106:triangleai::8U4LPTy8", #"gpt-3.5-turbo", #"gpt-4-1106-preview"
-        messages=[
-            {
-                "role": "system",
-                "content": f"I am: {you_are}."
-            },
-            {
-                "role": "user", 
-                "content": f"uploaded data: {data}"
-            },
-        ],
-    )
-
-    gpt_response = response.choices[0].message['content'].strip()
-    print(gpt_response)
-
     if file:
         filename = secure_filename(file.filename)
         file_url = upload_file_to_s3(file, S3_BUCKET)
 
+        # Optional: Process the file data as needed
+        # If 'data' is a JSON string, you can convert it to a Python object
+        # file_data = json.loads(data) if data else None
+
         return {
             "message": "Upload Done!",
             "file_url": file_url,
-            "file_data": gpt_response, 
-            "userId": userId   
+            "file_data": data,  # Optional: return file data in response
+            "userId": userId    # Optional: return userId in response
         }, 200
 
 ### -upload- ###
