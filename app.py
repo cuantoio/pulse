@@ -27,6 +27,8 @@ import openai
 import stripe
 import os
 
+from io import BytesIO, StringIO
+
 app = Flask(__name__)
 CORS(app)
 
@@ -1002,7 +1004,8 @@ def triChat():
     # Get text fields from form data
     userId = request.form.get('username', 'noname')
     gpt_prompt = request.form.get('prompt')
-    active_feature = request.form.get('feature')
+    feature = request.form.get('feature')
+    print(feature)
 
     # Access uploaded files
     uploaded_files = request.files.getlist('files')
@@ -1026,6 +1029,41 @@ def triChat():
         print(df.head())
         upload_file_to_s3(file, S3_BUCKET)
 
+    if feature == 'Forecast':
+        gpt_response = 'Forecasts are coming soon!'
+        return jsonify(gpt_response)
+
+    if feature == 'Analyze': 
+        print('here')
+        object_key = 'loans.csv'
+        
+        # Getting the file content from S3
+        csv_obj = s3.get_object(Bucket=S3_BUCKET, Key=object_key)
+        body = csv_obj['Body']
+        csv_string = body.read().decode('utf-8')
+
+        df = pd.read_csv(StringIO(csv_string))
+        print(df)
+        pandas_task = f"""import pandas as pd
+        
+        df = {df}
+        # add code to return string summary for {gpt_prompt} here"""
+
+        try:
+            print('here 2')
+            response = openai.Completion.create(
+                engine="text-davinci-003",  # GPT-3.5's engine
+                prompt= gpt_prompt + df, #pandas_task,
+                max_tokens=150
+            )
+            # pandas_response = exec(response.choices[0].text.strip())
+            gpt_response = response.choices[0].message['content'].strip()
+            print(gpt_response)
+            return jsonify(gpt_response)
+        except:
+            print('failed')
+            pandas_response = ''
+        
     print(userId)
     
     timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")

@@ -1013,6 +1013,8 @@ def triChat():
         # Example usage
         print('here')
         pandas_task = f"""import pandas as pd
+        df = pd.read_csv(loan_test.csv)
+        
         # add code to return string summary for {gpt_prompt}"""
 
         pandas_code = pdGPT(pandas_task)
