@@ -68,7 +68,7 @@ def run_test():
 
 @app.route('/eb')
 def run_eb():
-    return 'eb-live alpha tri v3.01'
+    return 'eb-live alpha tri v3.02'
 
 def save_chat_history(chat_history):
     today = datetime.utcnow().strftime("%Y-%m-%d")
@@ -998,37 +998,47 @@ def pdGPT(prompt):
 
 @app.route('/tri', methods=['POST'])
 def triChat():
-    # User data and query
     print('tri - live')
-    data = request.json
-    userId = data.get('username', 'noname')
-    gpt_prompt =  data.get('prompt')
+    # Get text fields from form data
+    userId = request.form.get('username', 'noname')
+    gpt_prompt = request.form.get('prompt')
+
+    # Access uploaded files
+    uploaded_files = request.files.getlist('files')
+    filename_list = []
+    for file in uploaded_files:
+        print('file: ', file.filename)     
+        filename_list.append(file.filename)
+        if file.filename.endswith('.xlsx'):
+            # Handle Excel files
+            df = pd.read_excel(file, engine='openpyxl')
+            gpt_prompt = gpt_prompt + str(df.head()) + str(df.info())
+        elif file.filename.endswith('.csv'):
+            # Handle CSV files
+            df = pd.read_csv(file)
+            gpt_prompt = gpt_prompt + str(df.head()) + str(df.info())
+        else:
+            # Skip unsupported file types
+            print(f"Unsupported file type: {file.filename}")
+            continue
+
+        print(df.head())
+        upload_file_to_s3(file, S3_BUCKET)
+
     print(userId)
     
-    # if 'analyze' in gpt_prompt:
-    #     # Example usage
-    #     print('here')
-    #     pandas_task = f"""import pandas as pd
-    #     # add code to return string summary for {gpt_prompt}"""
-
-    #     pandas_code = pdGPT(pandas_task)
-    #     print(pandas_code)
-    #     try:
-    #         pandas_response = exec(pandas_code)
-    #     except:
-    #         print('failed')
-    #         pandas_response = ''
-    # else:
-    #     print('no analyze')
-    #     pandas_response = ''
-
     timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
     # Ensure the collection is retrieved or created
     collection = Collection(userId)
 
-    # context classifier
-    context_layers = context_classifier(gpt_prompt)
+    filenames = ', '.join(filename_list)
+
+    if uploaded_files:
+        context_layers = context_classifier(gpt_prompt + 'uploaded files:'+ filenames)
+    else:
+        # context classifier
+        context_layers = context_classifier(gpt_prompt)
 
     try:
         # add context key and values
@@ -1068,7 +1078,7 @@ def triChat():
     # full context
     if userId == 'Alpha':
         userId = "Steve"
-    full_context = f"{timestamp}. past chats: {joined_string}. {pandas_response}. user msg:'{userId}': {gpt_prompt}."
+    full_context = f"{timestamp}. past chats wit me: {joined_string}. you: {gpt_prompt}."
 
     collection.add_to_dynamodb(
         documents=[full_context],
