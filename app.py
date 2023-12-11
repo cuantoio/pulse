@@ -1002,6 +1002,7 @@ def triChat():
     # Get text fields from form data
     userId = request.form.get('username', 'noname')
     gpt_prompt = request.form.get('prompt')
+    active_feature = request.form.get('feature')
 
     # Access uploaded files
     uploaded_files = request.files.getlist('files')
