@@ -70,7 +70,7 @@ def run_test():
 
 @app.route('/eb')
 def run_eb():
-    return 'eb-live alpha tri v3.08'
+    return 'eb-live alpha tri v3.09'
 
 def save_chat_history(chat_history):
     today = datetime.utcnow().strftime("%Y-%m-%d")
@@ -991,7 +991,7 @@ def pdGPT(prompt):
         print('inside pdGPT')
 
         response = openai.ChatCompletion.create(
-            model= "ft:gpt-3.5-turbo-1106:triangleai::8VE9dhcM", #"gpt-3.5-turbo",
+            model= "ft:gpt-3.5-turbo-1106:triangleai::8VQe5IQ9", #"ft:gpt-3.5-turbo-1106:triangleai::8VE9dhcM", #"gpt-3.5-turbo",
             # model="gpt-4",
             messages=[
                 {
