@@ -44,6 +44,7 @@ stock_data_cache = {}
 
 s3 = boto3.client('s3')
 BUCKET_NAME = os.getenv("BUCKET_NAME")
+S3_BUCKET = 'tri-cfo-uploads'
 CHAT_HISTORY_PREFIX = 'chat_history/'
 
 # Initialize DynamoDB client
@@ -1229,8 +1230,6 @@ def triChat():
 ### -tri- ###
 
 ### -upload- ###
-S3_BUCKET = 'tri-cfo-uploads'
-
 def upload_file_to_s3(file, bucket_name):
     try:
         filename = secure_filename(file.filename)
