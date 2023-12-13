@@ -70,7 +70,7 @@ def run_test():
 
 @app.route('/eb')
 def run_eb():
-    return 'eb-live alpha tri v3.07'
+    return 'eb-live alpha tri v3.08'
 
 def save_chat_history(chat_history):
     today = datetime.utcnow().strftime("%Y-%m-%d")
@@ -1125,7 +1125,7 @@ def triChat():
         gpt_response = response.choices[0].message['content'].strip()
         print(gpt_response)
 
-        return jsonify(gpt_response + '\n\nResults:\n' + str(python_result) + str(python_result_comment))
+        return jsonify(gpt_response) #+ '\n\nResults:\n' + str(python_result) + str(python_result_comment))
         
     print(userId)
     
