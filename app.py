@@ -27,7 +27,7 @@ import openai
 import stripe
 import os
 
-from io import BytesIO, StringIO
+from io import StringIO
 
 app = Flask(__name__)
 CORS(app)
@@ -988,13 +988,27 @@ def pdGPT(prompt):
     This function takes a prompt and uses GPT-3.5 to generate Pandas code.
     """
     try:
-        print('here 2')
-        response = openai.Completion.create(
-            engine="text-davinci-003",  # GPT-3.5's engine
-            prompt=prompt,
-            max_tokens=150
+        print('inside pdGPT')
+
+        response = openai.ChatCompletion.create(
+            model= "ft:gpt-3.5-turbo-1106:triangleai::8VE9dhcM", #"gpt-3.5-turbo",
+            # model="gpt-4",
+            messages=[
+                {
+                    "role": "system",
+                    "content": "respond with full python code from import to final string response. only code.",
+                },
+                {
+                    "role": "user", 
+                    "content": prompt
+                },
+            ],
         )
-        return response.choices[0].text.strip()
+
+        gpt_response = response.choices[0].message['content'].strip()
+        print('gpt python:', gpt_response, 'end')
+        return gpt_response
+
     except Exception as e:
         return f"An error occurred: {e}"
 
@@ -1007,6 +1021,9 @@ def triChat():
     feature = request.form.get('feature')
     print(feature)
 
+    
+    timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+
     # Access uploaded files
     uploaded_files = request.files.getlist('files')
     filename_list = []
@@ -1016,17 +1033,20 @@ def triChat():
         if file.filename.endswith('.xlsx'):
             # Handle Excel files
             df = pd.read_excel(file, engine='openpyxl')
-            gpt_prompt = gpt_prompt + str(df.head()) + str(df.info())
         elif file.filename.endswith('.csv'):
             # Handle CSV files
             df = pd.read_csv(file)
-            gpt_prompt = gpt_prompt + str(df.head()) + str(df.info())
         else:
             # Skip unsupported file types
             print(f"Unsupported file type: {file.filename}")
             continue
 
-        print(df.head())
+        print(timestamp, 'file read', file.filename, df.head())
+    
+        # Reset the file's read pointer to the start
+        file.seek(0)
+        
+        # Now upload to S3
         upload_file_to_s3(file, S3_BUCKET)
 
     if feature == 'Forecast':
@@ -1036,33 +1056,57 @@ def triChat():
     if feature == 'Analyze': 
         print('here')
         object_key = 'loans.csv'
-        
-        # Getting the file content from S3
-        csv_obj = s3.get_object(Bucket=S3_BUCKET, Key=object_key)
-        body = csv_obj['Body']
-        csv_string = body.read().decode('utf-8')
 
-        df = pd.read_csv(StringIO(csv_string))
-        print(df)
-        pandas_task = f"""import pandas as pd
-        
-        df = {df}
-        # add code to return string summary for {gpt_prompt} here"""
+        you_are = "Hi, I'm Tri. I help you make more decicive action based on all context given"
 
+        def read_csv_from_s3(bucket_name, object_key):
+            s3 = boto3.client('s3')
+            csv_obj = s3.get_object(Bucket=bucket_name, Key=object_key)
+            body = csv_obj['Body']
+            csv_string = StringIO(body.read().decode('utf-8'))
+            df = pd.read_csv(csv_string)
+            return df
+
+        # Use the function to read CSV and print the first few lines
+        df = read_csv_from_s3(S3_BUCKET, object_key)        
+
+        pandas_task = f"""# given df is loaded. df.head() = {df.head()} write python to execute based on this request: {gpt_prompt}"""
+        python_code = pdGPT(pandas_task)
+
+        print("python_code:", python_code, "end")
+
+        # Make sure df is accessible in the local scope of exec
+        local_vars = {'df': df}
+        exec(python_code, globals(), local_vars)
+
+        # Retrieve the result from local_vars
+        python_result = local_vars['result']
         try:
-            print('here 2')
-            response = openai.Completion.create(
-                engine="text-davinci-003",  # GPT-3.5's engine
-                prompt= gpt_prompt + df, #pandas_task,
-                max_tokens=150
-            )
-            # pandas_response = exec(response.choices[0].text.strip())
-            gpt_response = response.choices[0].message['content'].strip()
-            print(gpt_response)
-            return jsonify(gpt_response)
+            python_result_comment = local_vars['result_comment']
+            print("python_result:", str(python_result) + str(python_result_comment), "end")
         except:
-            print('failed')
-            pandas_response = ''
+            python_result_comment = ''
+            print("python_result:", str(python_result) + str(python_result_comment), "end")
+
+        # response
+        response = openai.ChatCompletion.create(
+            model="ft:gpt-3.5-turbo-1106:triangleai::8U4LPTy8", #"gpt-3.5-turbo", #"gpt-4-1106-preview"
+            messages=[
+                {
+                    "role": "system",
+                    "content": f"I am: {you_are}."
+                },
+                {
+                    "role": "user", 
+                    "content": f"{gpt_prompt} \ndata analysis: {str(python_result) + str(python_result_comment)}"
+                },
+            ],
+        )
+
+        gpt_response = response.choices[0].message['content'].strip()
+        print(gpt_response)
+
+        return jsonify(gpt_response + '\n\nResults:\n' + str(python_result) + str(python_result_comment))
         
     print(userId)
     
@@ -1074,6 +1118,7 @@ def triChat():
     filenames = ', '.join(filename_list)
 
     if uploaded_files:
+        gpt_prompt = gpt_prompt + 'uploaded files:'+ filenames
         context_layers = context_classifier(gpt_prompt + 'uploaded files:'+ filenames)
     else:
         # context classifier
