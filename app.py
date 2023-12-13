@@ -44,7 +44,6 @@ stock_data_cache = {}
 
 s3 = boto3.client('s3')
 BUCKET_NAME = os.getenv("BUCKET_NAME")
-S3_BUCKET = 'tri-cfo-uploads'
 CHAT_HISTORY_PREFIX = 'chat_history/'
 
 # Initialize DynamoDB client
@@ -1014,6 +1013,8 @@ def pdGPT(prompt):
         return f"An error occurred: {e}"
 
 def get_files_from_s3(folder):
+    S3_BUCKET = 'tri-cfo-uploads'
+
     response = s3.list_objects_v2(Bucket=S3_BUCKET, Prefix=folder)
     files = [item['Key'] for item in response.get('Contents', [])]
     return files
@@ -1039,7 +1040,7 @@ def triChat():
     selectedFile = request.form.get('activeFile')
     print(feature, selectedFile)
 
-    
+    S3_BUCKET = 'tri-cfo-uploads'
     timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
     # Access uploaded files
