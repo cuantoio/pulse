@@ -70,7 +70,7 @@ def run_test():
 
 @app.route('/eb')
 def run_eb():
-    return 'eb-live alpha tri v3.09'
+    return 'eb-live alpha tri v3.10'
 
 def save_chat_history(chat_history):
     today = datetime.utcnow().strftime("%Y-%m-%d")
@@ -1089,7 +1089,7 @@ def triChat():
         # Use the function to read CSV and print the first few lines
         df = read_csv_from_s3(S3_BUCKET, object_key)        
 
-        pandas_task = f"""# given df is loaded. df.head() = {df.head()} write python to execute based on this request: {gpt_prompt}"""
+        pandas_task = f"""data overview = {df.head()} write python to execute based on this request: {gpt_prompt}"""
         python_code = pdGPT(pandas_task)
 
         print("python_code:", python_code, "end")
@@ -1107,6 +1107,8 @@ def triChat():
             python_result_comment = ''
             print("python_result:", str(python_result) + str(python_result_comment), "end")
 
+        print({"messages": [{"role": "user", "content": f"{pandas_task}"}, {"role": "assistant", "content": f"{python_code}"}]})
+        
         # response
         response = openai.ChatCompletion.create(
             model="ft:gpt-3.5-turbo-1106:triangleai::8U4LPTy8", #"gpt-3.5-turbo", #"gpt-4-1106-preview"
@@ -1122,6 +1124,7 @@ def triChat():
             ],
         )
 
+        print('response:',response)
         gpt_response = response.choices[0].message['content'].strip()
         print(gpt_response)
 
