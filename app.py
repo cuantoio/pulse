@@ -70,7 +70,7 @@ def run_test():
 
 @app.route('/eb')
 def run_eb():
-    return 'eb-live alpha tri v3.12'
+    return 'eb-live alpha tri v3.13'
 
 def save_chat_history(username, timestamp, chat):
     table_chat_history.put_item(
@@ -276,7 +276,7 @@ def read_json_from_s3(bucket_name, folder_name, file_name, prompt):
     # Read the content of the file and parse it as JSON
     ent_data = json.loads(response['Body'].read())
 
-    combined_texts = [f"timestamp: {data['timestamp']} data: {data['data']} input: {data['input']}" for data in ent_data]
+    combined_texts = [f"timestamp: {data['timestamp']} input: {data['input']} output: {data['output']}" for data in ent_data]
 
     # Vectorizing text data using TF-IDF
     vectorizer = TfidfVectorizer(stop_words='english')
@@ -364,11 +364,13 @@ def triChat():
 
         you_are = "Hi, I'm Tri. I help you make more decicive action based on all context given"
 
-        folder_name = userId
-        df = read_csv_from_s3(S3_BUCKET, folder_name, object_key)
-
         forecast_task = f"""data header = {df.head()}, relevant data types: {gpt_prompt}"""
         gpt_response = predGPT(forecast_task)
+
+        folder_name = f"{userId}/ent_core"        
+
+        new_data = {"timestamp": timestamp, "input": forecast_task, "output": gpt_response}
+        append_to_json_in_s3(S3_BUCKET, folder_name, new_data)
 
         print("forecast_response:", gpt_response, "end")
         
@@ -403,6 +405,7 @@ def triChat():
 
         print({"messages": [{"role": "user", "content": f"{pandas_task}"}, {"role": "assistant", "content": f"{python_code}"}]})
         
+        gpt_input = f"{gpt_prompt} \ndata analysis: {str(python_result) + str(python_result_comment)}"
         # response
         response = openai.ChatCompletion.create(
             model="ft:gpt-3.5-turbo-1106:triangleai::8U4LPTy8", #"gpt-3.5-turbo", #"gpt-4-1106-preview"
@@ -413,7 +416,7 @@ def triChat():
                 },
                 {
                     "role": "user", 
-                    "content": f"{gpt_prompt} \ndata analysis: {str(python_result) + str(python_result_comment)}"
+                    "content": gpt_input
                 },
             ],
         )
@@ -422,16 +425,26 @@ def triChat():
         gpt_response = response.choices[0].message['content'].strip()
         print(gpt_response)
 
+        folder_name = f"{userId}/ent_core"        
+
+        new_data = {"timestamp": timestamp, "input": gpt_input, "output": gpt_response}
+        append_to_json_in_s3(S3_BUCKET, folder_name, new_data)
+
         return jsonify(gpt_response) #+ '\n\nResults:\n' + str(python_result) + str(python_result_comment))
     
     timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
-    object_key = f"ent_core/ent.json"
+    object_key = f"ent_core/ent_core.json"
 
     you_are = f"timestamp: {timestamp}. Hi, I'm Tri. I help you make more decicive action based on all context given"
 
-    folder_name = userId
-    memory_recalled = read_json_from_s3(S3_BUCKET, folder_name, object_key, gpt_prompt)
+    folder_name = f"{userId}/ent_core"
+    try:
+        memory_recalled = read_json_from_s3(S3_BUCKET, folder_name, object_key, gpt_prompt)
+    except:
+        memory_recalled = ""
+
+    gpt_input = f"from memory (may be related): {memory_recalled}. {gpt_prompt}"
 
     # response
     response = openai.ChatCompletion.create(
@@ -443,13 +456,18 @@ def triChat():
             },
             {
                 "role": "user", 
-                "content": f"from memory (may be related): {memory_recalled}. {gpt_prompt}"
+                "content": gpt_input
             },
         ],
     )
 
     gpt_response = response.choices[0].message['content'].strip()
     print(gpt_response)
+
+    folder_name = f"{userId}/ent_core"        
+
+    new_data = {"timestamp": timestamp, "input": gpt_input, "output": gpt_response}
+    append_to_json_in_s3(S3_BUCKET, folder_name, new_data)
 
     return jsonify(gpt_response)
 ### -tri- ###
@@ -463,11 +481,35 @@ def upload_file_to_s3(file, folder_name, bucket_name):
             bucket_name,
             filename,
             ExtraArgs={
-                "ContentType": file.content_type  # Make sure no ACL-related arguments are here
+                "ContentType": file.content_type
             }
         )
-        # Presigned URL generation remains the same
         presigned_url = s3.generate_presigned_url('get_object', Params={'Bucket': bucket_name, 'Key': filename}, ExpiresIn=3600)
+
+        # Creating an additional "folder" inside the folder_name
+        extra_folder_key = f"{folder_name}/ent_core/"
+        s3.put_object(Bucket=bucket_name, Key=extra_folder_key)
+
+        ent_core_key = f"{folder_name}/ent_core/ent_core.json"
+        try:
+            s3.head_object(Bucket=bucket_name, Key=ent_core_key)
+            print("JSON file already exists in the extra_folder.")
+        except ClientError as e:
+            # If the file does not exist, create a new JSON file
+            if e.response['Error']['Code'] == '404':
+                json_data = {"timestamp": "init", "input": "core memory created", "output": "success"}
+                s3.put_object(Bucket=bucket_name, Key=ent_core_key, Body=json.dumps(json_data))
+                print("Created a new JSON file in the extra_folder.")
+
+        return presigned_url
+    except FileNotFoundError:
+        return jsonify({"error": "The file was not found"}), 404
+    except boto3.exceptions.NoCredentialsError:
+        return jsonify({"error": "Credentials not available"}), 403
+    except Exception as e:
+        # Catch any other exception and return a meaningful error message
+        return jsonify({"error": str(e)}), 500
+
         return presigned_url
     except FileNotFoundError:
         return jsonify({"error": "The file was not found"}), 404
@@ -475,7 +517,32 @@ def upload_file_to_s3(file, folder_name, bucket_name):
         return jsonify({"error": "Credentials not available"}), 403
     except Exception as e:
         # Catch any other exception and return a meaningful error message
-        return jsonify({"error": str(e)}), 500        
+        return jsonify({"error": str(e)}), 500 
+
+def append_to_json_in_s3(bucket_name, folder_name, new_data):
+    s3 = boto3.client('s3')
+    json_file_key = f"{folder_name}/ent_core/ent_core.json"
+
+    try:
+        # Try to fetch the existing JSON file
+        response = s3.get_object(Bucket=bucket_name, Key=json_file_key)
+        existing_data = json.loads(response['Body'].read().decode('utf-8'))
+
+    except ClientError as e:
+        # If the file does not exist, start with an empty list
+        if e.response['Error']['Code'] == 'NoSuchKey':
+            print("JSON file not found. Creating a new file.")
+            existing_data = []
+        else:
+            raise
+
+    # Append the new data
+    existing_data.append(new_data)
+
+    # Write the updated data back to the JSON file in S3
+    updated_json_data = json.dumps(existing_data)
+    s3.put_object(Bucket=bucket_name, Key=json_file_key, Body=updated_json_data)
+    print("Data appended to the JSON file in S3.")       
 
 ### -cta- ###
 from werkzeug.utils import secure_filename
