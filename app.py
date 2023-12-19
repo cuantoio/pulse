@@ -70,7 +70,7 @@ def run_test():
 
 @app.route('/eb')
 def run_eb():
-    return 'eb-live alpha tri v3.11'
+    return 'eb-live alpha tri v3.12'
 
 def save_chat_history(username, timestamp, chat):
     table_chat_history.put_item(
@@ -120,75 +120,8 @@ def check_is_premium_user():
 
 from decimal import Decimal
 from sklearn.feature_extraction.text import TfidfVectorizer
+from sklearn.neighbors import NearestNeighbors
 from sklearn.metrics.pairwise import linear_kernel
-
-### Tri ###
-class Collection:
-    def __init__(self, user_id):
-        self.user_id = user_id        
-        self.table = table_TriDB  # DynamoDB table name
-        self.vectorizer = TfidfVectorizer(stop_words='english')
-        self.embeddings = np.array([])  # Initialize as a NumPy array for consistency
-
-    def fit_vectorizer_with_dynamodb(self):
-        # Fetch documents from DynamoDB
-        response = self.table.scan()
-        documents = [item['document'] for item in response['Items'] if item['UserId'] == self.user_id]
-
-        if not documents:
-            raise ValueError("No documents to fit the vectorizer.")
-        self.vectorizer.fit(documents)
-
-    def add_to_dynamodb(self, documents=[], metadatas=[], timestamps=[]):
-        if not documents:
-            return  # Nothing to add
-
-        for doc, metadata, timestamp in zip(documents, metadatas, timestamps):
-            try:
-                # Assuming metadata is already in a format that DynamoDB can accept
-                self.table.put_item(
-                    Item={
-                        'UserId': self.user_id,  # Make sure this is a string
-                        'document': doc,  # Ensure this is a string
-                        'metadata': metadata,  # Directly passed without json.dumps
-                        'timestamp': timestamp  # Ensure this is in the correct format
-                    }
-                )
-                # Consider adding logging here for successful operations
-            except Exception as e:
-                # Log the error
-                print(f"Error adding document: {e}")
-        
-        # Update the vectorizer
-        self.fit_vectorizer_with_dynamodb()
-
-    def query_from_dynamodb(self, query_texts, n_results=1):
-        if not query_texts:
-            return []
-
-        # Fetch and transform documents from DynamoDB
-        response = self.table.scan(
-            FilterExpression=Key('UserId').eq(self.user_id)
-        )
-        documents = [item['document'] for item in response['Items']]
-
-        if not documents:
-            return []
-
-        # Transform documents using the already fitted vectorizer
-        self.fit_vectorizer_with_dynamodb()  # Ensure vectorizer is up-to-date
-        document_embeddings = self.vectorizer.transform(documents).toarray()
-        query_embedding = self.vectorizer.transform(query_texts)
-
-        # Compute similarities with each document
-        cosine_similarities = linear_kernel(query_embedding, document_embeddings).flatten()
-
-        # Get indices of top n_results similar documents
-        top_indices = cosine_similarities.argsort()[:-(n_results+1):-1]
-        top_indices = top_indices[:min(len(documents), n_results)]
-
-        # Return top documents using the top_indices
-        return [documents[i] for i in top_indices]
 
 ### -tri- ###
 def context_classifier(content):
@@ -335,6 +268,36 @@ def read_csv_from_s3(bucket_name, folder_name, file_name):
     
     return df
 
+def read_json_from_s3(bucket_name, folder_name, file_name, prompt):
+    
+    object_key = f"{folder_name}/{file_name}"
+    response = s3.get_object(Bucket=bucket_name, Key=object_key)
+
+    # Read the content of the file and parse it as JSON
+    ent_data = json.loads(response['Body'].read())
+
+    combined_texts = [f"timestamp: {data['timestamp']} data: {data['data']} input: {data['input']}" for data in ent_data]
+
+    # Vectorizing text data using TF-IDF
+    vectorizer = TfidfVectorizer(stop_words='english')
+    tfidf_matrix = vectorizer.fit_transform(combined_texts)
+
+    # Using KNN to find similar movies
+    knn = NearestNeighbors(n_neighbors=3, metric='cosine')
+    knn.fit(tfidf_matrix)
+
+    query_tfidf = vectorizer.transform([prompt])
+
+    # Find similar movies
+    distances, indices = knn.kneighbors(query_tfidf, n_neighbors=3)
+    
+    ent_recall = []
+    # Retrieve similar movies
+    for i in indices[0]:
+        ent_recall.append(ent_data[i])
+    
+    return ent_recall
+
 @app.route('/lists', methods=['GET'])
 def get_list():
     folder_name = request.args.get('folder_name', '')
@@ -371,7 +334,7 @@ def triChat():
                 filename_list.append(file.filename)
                 if file.filename.endswith('.xlsx'):
                     # Handle Excel files
-                    df = pd.read_excel(file, engine='openpyxl')
+                    df = pd.read_excel(file)                    
                     print('xlsx uploaded successfully!')
                     gpt_prompt = f"{gpt_prompt} \nuploaded {file.filename} successfully."
                 elif file.filename.endswith('.csv'):
@@ -460,11 +423,15 @@ def triChat():
         print(gpt_response)
 
         return jsonify(gpt_response) #+ '\n\nResults:\n' + str(python_result) + str(python_result_comment))
-
     
     timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
+    object_key = f"ent_core/ent.json"
+
     you_are = f"timestamp: {timestamp}. Hi, I'm Tri. I help you make more decicive action based on all context given"
+
+    folder_name = userId
+    memory_recalled = read_json_from_s3(S3_BUCKET, folder_name, object_key, gpt_prompt)
 
     # response
     response = openai.ChatCompletion.create(
@@ -476,7 +443,7 @@ def triChat():
             },
             {
                 "role": "user", 
-                "content": gpt_prompt
+                "content": f"from memory (may be related): {memory_recalled}. {gpt_prompt}"
             },
         ],
     )
@@ -485,105 +452,6 @@ def triChat():
     print(gpt_response)
 
     return jsonify(gpt_response)
-
-    # Ensure the collection is retrieved or created
-    # collection = Collection(userId)
-
-    # filenames = ', '.join(filename_list)
-
-    # if uploaded_files:
-    #     gpt_prompt = gpt_prompt + 'uploaded files:'+ filenames
-    #     context_layers = context_classifier(gpt_prompt + 'uploaded files:'+ filenames)
-    # else:
-    #     # context classifier
-    #     context_layers = context_classifier(gpt_prompt)
-
-    # try:
-    #     # add context key and values
-    #     for i in range(len(context_layers)):
-
-    #         context_key = context_layers[i][0]
-    #         context_value = context_layers[i][1]
-
-    #         collection.add_to_dynamodb(
-    #             documents=[context_value],
-    #             metadatas=[context_key],
-    #             timestamps=[timestamp],
-    #         )        
-
-    #         # multi-context search 
-    #         search_results = []
-
-    #         for i in range(len(context_layers)):
-
-    #             context_key = context_layers[i][0]
-
-    #             results = collection.query_from_dynamodb([gpt_prompt + context_key], n_results=3)
-
-    #         search_results.append(results)
-    #         print('search_results',search_results,'\n')
-        
-    # except:
-    #     unique_strings = ['']
-
-    # full retrieved context
-    # Flatten the list of lists and remove duplicates using a set
-    # unique_strings = set(item for sublist in search_results for item in sublist)
-
-    # # Join the unique strings
-    # joined_string = ' '.join(unique_strings)
-    
-    # # full context
-    # if userId == 'Alpha':
-    #     userId = "Steve"
-    # full_context = f"{timestamp}. past chats wit me: {joined_string}. you: {gpt_prompt}."
-
-    # collection.add_to_dynamodb(
-    #     documents=[full_context],
-    #     metadatas=[unique_strings],
-    #     timestamps=[timestamp],
-    # )        
-
-    # you_are = "Hi, I'm Tri. I help you make more decicive action based on all context given"
-
-    # # response
-    # response = openai.ChatCompletion.create(
-    #     model="ft:gpt-3.5-turbo-1106:triangleai::8U4LPTy8", #"gpt-3.5-turbo", #"gpt-4-1106-preview"
-    #     messages=[
-    #         {
-    #             "role": "system",
-    #             "content": f"I am: {you_are}."
-    #         },
-    #         {
-    #             "role": "user", 
-    #             "content": full_context
-    #         },
-    #     ],
-    # )
-
-    # gpt_response = response.choices[0].message['content'].strip()
-    # print(gpt_response)
-
-    # # context classifier
-    # context_layers_response = context_classifier(gpt_response)
-
-    # try:
-    #     # add context key and values
-    #     for i in range(len(context_layers_response)):
-
-    #         context_key = context_layers_response[i][0]
-    #         context_value = context_layers_response[i][1]
-
-    #         collection.add_to_dynamodb(
-    #             documents=[context_value],
-    #             metadatas=[context_layers_response],
-    #             timestamps=[timestamp],
-    #         ) 
-    # except:
-    #     print('context layers issue')
-
-    # return jsonify(gpt_response)
-
 ### -tri- ###
 
 ### -upload- ###
