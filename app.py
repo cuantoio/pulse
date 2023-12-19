@@ -70,7 +70,7 @@ def run_test():
 
 @app.route('/eb')
 def run_eb():
-    return 'eb-live alpha tri v3.10'
+    return 'eb-live alpha tri v3.11'
 
 def save_chat_history(username, timestamp, chat):
     table_chat_history.put_item(
@@ -321,13 +321,29 @@ def get_files_from_s3(folder):
     files = [item['Key'] for item in response.get('Contents', [])]
     return files
 
+def read_csv_from_s3(bucket_name, folder_name, file_name):
+    # Construct the full object key with folder and file name
+    object_key = f"{folder_name}/{file_name}"
+
+    # Get the object from S3
+    csv_obj = s3.get_object(Bucket=bucket_name, Key=object_key)
+    
+    # Read the object's body into a DataFrame
+    body = csv_obj['Body']
+    csv_string = StringIO(body.read().decode('utf-8'))
+    df = pd.read_csv(csv_string)
+    
+    return df
+
 @app.route('/lists', methods=['GET'])
 def get_list():
-    button_name = request.args.get('button', '')
-    if button_name:
-        # folder_name = f'{button_name}/' 
-        folder_name = ''
-        files = get_files_from_s3(folder_name)
+    folder_name = request.args.get('folder_name', '')
+
+    if folder_name:
+        # sub_folder_name = f'{button_name}/' 
+        files = get_files_from_s3(str(folder_name))
+        # Extracting just the file names
+        files = [os.path.basename(file) for file in files]
         return jsonify(files)
     else:
         return jsonify([]), 404
@@ -336,41 +352,48 @@ def get_list():
 def triChat():
     print('tri - live')
     # Get text fields from form data
-    userId = request.form.get('username', 'noname')
+    username = request.form.get('username', 'noname')
+    userId = request.form.get('userId', 'noid')
     gpt_prompt = request.form.get('prompt')
     feature = request.form.get('feature')
     selectedFile = request.form.get('activeFile')    
     print('file and feature: ',feature, selectedFile)
-
-    S3_BUCKET = 'tri-cfo-uploads'
+    
+    S3_BUCKET = f'tri-cfo-uploads'
     timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
     # Access uploaded files
-    uploaded_files = request.files.getlist('files')
-    filename_list = []
-    for file in uploaded_files:
-        print('file: ', file.filename)     
-        filename_list.append(file.filename)
-        if file.filename.endswith('.xlsx'):
-            # Handle Excel files
-            df = pd.read_excel(file, engine='openpyxl')
-        elif file.filename.endswith('.csv'):
-            # Handle CSV files
-            df = pd.read_csv(file)
-        else:
-            # Skip unsupported file types
-            print(f"Unsupported file type: {file.filename}")
-            df = pd.DataFrame()
-            print(f"no file loaded")        
-            continue
+    if feature == 'Clip':
+        uploaded_files = request.files.getlist('files')
+        filename_list = []
+        for file in uploaded_files:    
+            try:
+                filename_list.append(file.filename)
+                if file.filename.endswith('.xlsx'):
+                    # Handle Excel files
+                    df = pd.read_excel(file, engine='openpyxl')
+                    print('xlsx uploaded successfully!')
+                    gpt_prompt = f"{gpt_prompt} \nuploaded {file.filename} successfully."
+                elif file.filename.endswith('.csv'):
+                    # Handle CSV files
+                    df = pd.read_csv(file)            
+                    print('csv uploaded successfully!')
+                    gpt_prompt = f"{gpt_prompt} \nuploaded {file.filename} successfully."
+                else:
+                    # Skip unsupported file types
+                    df = pd.DataFrame()
+                    print(f"no file loaded")        
+                    continue
 
-        print(timestamp, 'file read', file.filename, df.head())
-    
-        # Reset the file's read pointer to the start
-        file.seek(0)
-        
-        # Now upload to S3
-        upload_file_to_s3(file, S3_BUCKET)
+                # Reset the file's read pointer to the start
+                file.seek(0)
+                
+                # Now upload to S3
+                folder_name = userId
+                upload_file_to_s3(file, folder_name, S3_BUCKET)
+            except:
+                print('file upload fail.')
+                gpt_prompt = f"{gpt_prompt} \nfailed to upload file."
 
     if feature == 'Forecast':
         print('@ forecast')
@@ -378,16 +401,8 @@ def triChat():
 
         you_are = "Hi, I'm Tri. I help you make more decicive action based on all context given"
 
-        def read_csv_from_s3(bucket_name, object_key):
-            s3 = boto3.client('s3')
-            csv_obj = s3.get_object(Bucket=bucket_name, Key=object_key)
-            body = csv_obj['Body']
-            csv_string = StringIO(body.read().decode('utf-8'))
-            df = pd.read_csv(csv_string)
-            return df
-
-        # Use the function to read CSV and print the first few lines
-        df = read_csv_from_s3(S3_BUCKET, object_key)        
+        folder_name = userId
+        df = read_csv_from_s3(S3_BUCKET, folder_name, object_key)
 
         forecast_task = f"""data header = {df.head()}, relevant data types: {gpt_prompt}"""
         gpt_response = predGPT(forecast_task)
@@ -402,16 +417,8 @@ def triChat():
 
         you_are = "Hi, I'm Tri. I help you make more decicive action based on all context given"
 
-        def read_csv_from_s3(bucket_name, object_key):
-            s3 = boto3.client('s3')
-            csv_obj = s3.get_object(Bucket=bucket_name, Key=object_key)
-            body = csv_obj['Body']
-            csv_string = StringIO(body.read().decode('utf-8'))
-            df = pd.read_csv(csv_string)
-            return df
-
-        # Use the function to read CSV and print the first few lines
-        df = read_csv_from_s3(S3_BUCKET, object_key)        
+        folder_name = userId
+        df = read_csv_from_s3(S3_BUCKET, folder_name, object_key)       
 
         pandas_task = f"""data (df) = {df.head()} write python to execute based on this request: {gpt_prompt}"""
         python_code = pdGPT(pandas_task)
@@ -453,70 +460,11 @@ def triChat():
         print(gpt_response)
 
         return jsonify(gpt_response) #+ '\n\nResults:\n' + str(python_result) + str(python_result_comment))
-        
-    print(userId)
+
     
     timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
-    # Ensure the collection is retrieved or created
-    collection = Collection(userId)
-
-    filenames = ', '.join(filename_list)
-
-    if uploaded_files:
-        gpt_prompt = gpt_prompt + 'uploaded files:'+ filenames
-        context_layers = context_classifier(gpt_prompt + 'uploaded files:'+ filenames)
-    else:
-        # context classifier
-        context_layers = context_classifier(gpt_prompt)
-
-    try:
-        # add context key and values
-        for i in range(len(context_layers)):
-
-            context_key = context_layers[i][0]
-            context_value = context_layers[i][1]
-
-            collection.add_to_dynamodb(
-                documents=[context_value],
-                metadatas=[context_key],
-                timestamps=[timestamp],
-            )        
-
-            # multi-context search 
-            search_results = []
-
-            for i in range(len(context_layers)):
-
-                context_key = context_layers[i][0]
-
-                results = collection.query_from_dynamodb([gpt_prompt + context_key], n_results=3)
-
-            search_results.append(results)
-            print('search_results',search_results,'\n')
-        
-    except:
-        unique_strings = ['']
-
-    # full retrieved context
-    # Flatten the list of lists and remove duplicates using a set
-    unique_strings = set(item for sublist in search_results for item in sublist)
-
-    # Join the unique strings
-    joined_string = ' '.join(unique_strings)
-    
-    # full context
-    if userId == 'Alpha':
-        userId = "Steve"
-    full_context = f"{timestamp}. past chats wit me: {joined_string}. you: {gpt_prompt}."
-
-    collection.add_to_dynamodb(
-        documents=[full_context],
-        metadatas=[unique_strings],
-        timestamps=[timestamp],
-    )        
-
-    you_are = "Hi, I'm Tri. I help you make more decicive action based on all context given"
+    you_are = f"timestamp: {timestamp}. Hi, I'm Tri. I help you make more decicive action based on all context given"
 
     # response
     response = openai.ChatCompletion.create(
@@ -528,7 +476,7 @@ def triChat():
             },
             {
                 "role": "user", 
-                "content": full_context
+                "content": gpt_prompt
             },
         ],
     )
@@ -536,31 +484,112 @@ def triChat():
     gpt_response = response.choices[0].message['content'].strip()
     print(gpt_response)
 
-    # context classifier
-    context_layers_response = context_classifier(gpt_response)
-
-    try:
-        # add context key and values
-        for i in range(len(context_layers_response)):
-
-            context_key = context_layers_response[i][0]
-            context_value = context_layers_response[i][1]
-
-            collection.add_to_dynamodb(
-                documents=[context_value],
-                metadatas=[context_layers_response],
-                timestamps=[timestamp],
-            ) 
-    except:
-        print('context layers issue')
-
     return jsonify(gpt_response)
+
+    # Ensure the collection is retrieved or created
+    # collection = Collection(userId)
+
+    # filenames = ', '.join(filename_list)
+
+    # if uploaded_files:
+    #     gpt_prompt = gpt_prompt + 'uploaded files:'+ filenames
+    #     context_layers = context_classifier(gpt_prompt + 'uploaded files:'+ filenames)
+    # else:
+    #     # context classifier
+    #     context_layers = context_classifier(gpt_prompt)
+
+    # try:
+    #     # add context key and values
+    #     for i in range(len(context_layers)):
+
+    #         context_key = context_layers[i][0]
+    #         context_value = context_layers[i][1]
+
+    #         collection.add_to_dynamodb(
+    #             documents=[context_value],
+    #             metadatas=[context_key],
+    #             timestamps=[timestamp],
+    #         )        
+
+    #         # multi-context search 
+    #         search_results = []
+
+    #         for i in range(len(context_layers)):
+
+    #             context_key = context_layers[i][0]
+
+    #             results = collection.query_from_dynamodb([gpt_prompt + context_key], n_results=3)
+
+    #         search_results.append(results)
+    #         print('search_results',search_results,'\n')
+        
+    # except:
+    #     unique_strings = ['']
+
+    # full retrieved context
+    # Flatten the list of lists and remove duplicates using a set
+    # unique_strings = set(item for sublist in search_results for item in sublist)
+
+    # # Join the unique strings
+    # joined_string = ' '.join(unique_strings)
+    
+    # # full context
+    # if userId == 'Alpha':
+    #     userId = "Steve"
+    # full_context = f"{timestamp}. past chats wit me: {joined_string}. you: {gpt_prompt}."
+
+    # collection.add_to_dynamodb(
+    #     documents=[full_context],
+    #     metadatas=[unique_strings],
+    #     timestamps=[timestamp],
+    # )        
+
+    # you_are = "Hi, I'm Tri. I help you make more decicive action based on all context given"
+
+    # # response
+    # response = openai.ChatCompletion.create(
+    #     model="ft:gpt-3.5-turbo-1106:triangleai::8U4LPTy8", #"gpt-3.5-turbo", #"gpt-4-1106-preview"
+    #     messages=[
+    #         {
+    #             "role": "system",
+    #             "content": f"I am: {you_are}."
+    #         },
+    #         {
+    #             "role": "user", 
+    #             "content": full_context
+    #         },
+    #     ],
+    # )
+
+    # gpt_response = response.choices[0].message['content'].strip()
+    # print(gpt_response)
+
+    # # context classifier
+    # context_layers_response = context_classifier(gpt_response)
+
+    # try:
+    #     # add context key and values
+    #     for i in range(len(context_layers_response)):
+
+    #         context_key = context_layers_response[i][0]
+    #         context_value = context_layers_response[i][1]
+
+    #         collection.add_to_dynamodb(
+    #             documents=[context_value],
+    #             metadatas=[context_layers_response],
+    #             timestamps=[timestamp],
+    #         ) 
+    # except:
+    #     print('context layers issue')
+
+    # return jsonify(gpt_response)
+
 ### -tri- ###
 
 ### -upload- ###
-def upload_file_to_s3(file, bucket_name):
+def upload_file_to_s3(file, folder_name, bucket_name):
     try:
-        filename = secure_filename(file.filename)
+        filename = f"{folder_name}/{secure_filename(file.filename)}"
         s3.upload_fileobj(
             file,
             bucket_name,
