@@ -70,7 +70,7 @@ def run_test():
 
 @app.route('/eb')
 def run_eb():
-    return 'eb-live alpha tri v3.13'
+    return 'eb-live alpha tri v3.14'
 
 def save_chat_history(username, timestamp, chat):
     table_chat_history.put_item(
@@ -283,7 +283,7 @@ def read_json_from_s3(bucket_name, folder_name, file_name, prompt):
     tfidf_matrix = vectorizer.fit_transform(combined_texts)
 
     # Using KNN to find similar movies
-    knn = NearestNeighbors(n_neighbors=3, metric='cosine')
+    knn = NearestNeighbors(n_neighbors=1, metric='cosine')
     knn.fit(tfidf_matrix)
 
     query_tfidf = vectorizer.transform([prompt])
@@ -364,6 +364,9 @@ def triChat():
 
         you_are = "Hi, I'm Tri. I help you make more decicive action based on all context given"
 
+        folder_name = userId
+        df = read_csv_from_s3(S3_BUCKET, folder_name, object_key)               
+
         forecast_task = f"""data header = {df.head()}, relevant data types: {gpt_prompt}"""
         gpt_response = predGPT(forecast_task)
 
@@ -376,8 +379,8 @@ def triChat():
         
         return jsonify(gpt_response)
 
-    if feature == 'Analyze': 
-        print('@ analyze')
+    if feature == 'Insights': 
+        print('@ insights')
         object_key = selectedFile
 
         you_are = "Hi, I'm Tri. I help you make more decicive action based on all context given"
@@ -385,14 +388,32 @@ def triChat():
         folder_name = userId
         df = read_csv_from_s3(S3_BUCKET, folder_name, object_key)       
 
-        pandas_task = f"""data (df) = {df.head()} write python to execute based on this request: {gpt_prompt}"""
-        python_code = pdGPT(pandas_task)
+        # pandas_task = f"""given data (df) = {df.head()} write python to execute based on this request: {gpt_prompt}"""
+        # python_code = pdGPT(pandas_task)
 
-        print("python_code:", python_code, "end")
+        # print("python_code:", python_code, "end")
 
         # Make sure df is accessible in the local scope of exec
-        local_vars = {'df': df}
-        exec(python_code, globals(), local_vars)
+        # local_vars = {'df': df}
+        # exec(python_code, globals(), local_vars)
+
+        for attempt in range(3):
+            try:
+                # pandas_task = f"""{reference} = {df.head()} {action} to execute based on this request: {gpt_prompt}"""
+                pandas_task = f"""given data (df) = {str(df.head())} write python for exec() based on this request: {gpt_prompt}"""
+                python_code = pdGPT(pandas_task)
+                local_vars = {'df': df}
+                exec(python_code, globals(), local_vars)
+
+                # If execution is successful, break out of the loop
+                break
+            except Exception as e:
+                # Handle the exception (e.g., log it)
+                print(f"Attempt {attempt + 1} failed with error: {e}")
+                if attempt == 2:
+                    # Handle the failure after the final attempt
+                    print("Failed after 3 attempts")
+                    return jsonify('can you rephrase that?')
 
         # Retrieve the result from local_vars
         python_result = local_vars['result']
@@ -444,7 +465,8 @@ def triChat():
     except:
         memory_recalled = ""
 
-    gpt_input = f"from memory (may be related): {memory_recalled}. {gpt_prompt}"
+    gpt_input = gpt_prompt
+    gpt_input_w_mem = f"from memory (may be related - ! do not mention or repeat ever): {memory_recalled[:280]}. {gpt_prompt}"
 
     # response
     response = openai.ChatCompletion.create(
@@ -456,7 +478,7 @@ def triChat():
             },
             {
                 "role": "user", 
-                "content": gpt_input
+                "content": gpt_input_w_mem
             },
         ],
     )
@@ -520,20 +542,20 @@ def upload_file_to_s3(file, folder_name, bucket_name):
         return jsonify({"error": str(e)}), 500 
 
 def append_to_json_in_s3(bucket_name, folder_name, new_data):
-    s3 = boto3.client('s3')
+    # s3 = boto3.client('s3')
     json_file_key = f"{folder_name}/ent_core/ent_core.json"
 
     try:
         # Try to fetch the existing JSON file
         response = s3.get_object(Bucket=bucket_name, Key=json_file_key)
         existing_data = json.loads(response['Body'].read().decode('utf-8'))
-
     except ClientError as e:
-        # If the file does not exist, start with an empty list
+        # Check if the error is because the file does not exist
         if e.response['Error']['Code'] == 'NoSuchKey':
             print("JSON file not found. Creating a new file.")
             existing_data = []
         else:
+            # Re-raise the error if it's not a 'NoSuchKey' error
             raise
 
     # Append the new data
@@ -542,7 +564,7 @@ def append_to_json_in_s3(bucket_name, folder_name, new_data):
     # Write the updated data back to the JSON file in S3
     updated_json_data = json.dumps(existing_data)
     s3.put_object(Bucket=bucket_name, Key=json_file_key, Body=updated_json_data)
-    print("Data appended to the JSON file in S3.")       
+    print("Data appended to the JSON file in S3.")
 
 ### -cta- ###
 from werkzeug.utils import secure_filename
