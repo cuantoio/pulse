@@ -70,7 +70,7 @@ def run_test():
 
 @app.route('/eb')
 def run_eb():
-    return 'eb-live alpha tri v3.15'
+    return 'eb-live alpha tri v3.14'
 
 def save_chat_history(username, timestamp, chat):
     table_chat_history.put_item(
@@ -124,23 +124,128 @@ from sklearn.neighbors import NearestNeighbors
 from sklearn.metrics.pairwise import linear_kernel
 
 ### -tri- ###
-def codeGPT_run_python(prompt):    
-    response = openai.ChatCompletion.create(
-        model="ft:gpt-3.5-turbo-1106:triangleai::8XFC4wE8", #"ft:gpt-3.5-turbo-1106:triangleai::8U4LPTy8",
+def context_classifier(content):
+
+    tags = ['chat', 'person', 'organization', 'action', 'object', 'etc']
+    
+    try:
+        context_classifier = openai.ChatCompletion.create(
+            model="gpt-3.5-turbo",
+            messages=[
+                {
+                    "role": "system",
+                    "content": f"turn inputs to keys and values. available tags: {tags} format must be: [['content','value'],['action','value']]."
+                    # "content": "turn inputs to keys and values. respond with dict only. format must be: [{'content': content, 'tags': chat, action, timeline, object etc.}]"
+                },
+                {
+                    "role": "user", 
+                    "content": content
+                },
+            ],
+        )
+
+        context_layers = context_classifier.choices[0].message['content'].strip()
+        print(context_layers)
+
+        # Use regex to find the list-like pattern in the string
+        match = re.search(r"\[\[.*?\]\]", context_layers)
+    except: 
+        match = None
+    
+    if match:
+        list_string = match.group(0)
+        try:
+            # Convert the extracted string to an actual Python list
+            actual_list = ast.literal_eval(list_string)
+            return actual_list
+        except (ValueError, SyntaxError):
+            # Handle the case where the string is not a valid Python literal
+            return "Invalid list format"
+    else:
+        return "No list found in string"
+
+### START - Forecast Feature ###
+def analyze_dataframe(df):
+    results = {
+        "date_time_columns": [],
+        "numerical_columns": []
+    }
+
+    for column in df.columns:
+        # Attempt to convert column to datetime if it's not already
+        if df[column].dtype == 'object':
+            try:
+                df[column] = pd.to_datetime(df[column])
+            except ValueError:
+                pass  # If conversion fails, continue as normal
+
+        # Check for date, datetime, or time columns
+        if pd.api.types.is_datetime64_any_dtype(df[column]) or pd.api.types.is_timedelta64_dtype(df[column]):
+            sorted_col = df[column].sort_values()
+            first_value = sorted_col.iloc[0]
+            last_value = sorted_col.iloc[-1]
+            results["date_time_columns"].append({
+                "column_name": column,
+                "type": df[column].dtype.name,
+                "first_value": first_value,
+                "last_value": last_value
+            })
+
+        # Check for numerical (int or float) columns
+        elif pd.api.types.is_numeric_dtype(df[column]):
+            results["numerical_columns"].append(column)
+
+    return results
+
+def predGPT(prompt):
+    gpt = openai.ChatCompletion.create(
+        model="ft:gpt-3.5-turbo-1106:triangleai::8U4LPTy8",
         messages=[
             {
                 "role": "system",
-                "content": "accelaration over efficiency. use pandas to analyze data based on request and return inline string to be run in exec(); example: exec('result = df.groupby('Gender')['Loan_Amount'].mean()')"
+                "content": f"write a short summary of what data we have for analysis and prediction. recommend prediction ml model. respond natural language."
             },
             {
                 "role": "user", 
-                "content": f"{prompt}"
+                "content": prompt
             },
         ],
     )
 
-    gpt_response = response.choices[0].message['content'].strip()
-    return gpt_response
+    response = gpt.choices[0].message['content'].strip()
+
+    return response
+
+### END - Forecast Feature ###
+
+def pdGPT(prompt):
+    """
+    This function takes a prompt and uses GPT-3.5 to generate Pandas code.
+    """
+    try:
+        print('inside pdGPT')
+
+        response = openai.ChatCompletion.create(
+            model= "ft:gpt-3.5-turbo-1106:triangleai::8XFC4wE8", #"ft:gpt-3.5-turbo-1106:triangleai::8X4SYg4T", #"ft:gpt-3.5-turbo-1106:triangleai::8VQe5IQ9", #"ft:gpt-3.5-turbo-1106:triangleai::8VE9dhcM", #"gpt-3.5-turbo",
+            # model="gpt-4",
+            messages=[
+                {
+                    "role": "system",
+                    "content": "respond with full python code from import to final string response. only code.",
+                },
+                {
+                    "role": "user", 
+                    "content": prompt
+                },
+            ],
+        )
+
+        gpt_response = response.choices[0].message['content'].strip()
+        print('gpt python:', gpt_response, 'end')
+        return gpt_response
+
+    except Exception as e:
+        return f"An error occurred: {e}"
 
 def get_files_from_s3(folder):
     S3_BUCKET = 'tri-cfo-uploads'
@@ -163,84 +268,43 @@ def read_csv_from_s3(bucket_name, folder_name, file_name):
     
     return df
 
-def read_json_from_s3(bucket_name, userId, prompt):
-    # key drivers; personal, role, org, drivers, kpis, objectives etc.
-    user_object_key = f"{userId}/ent_core/ent_core/user_core.json"
-
-    # metadata - ent/org data, people, orgs, vocab, etc. 
-    org_object_keys = f"{userId}/ent_core/ent_core/org_core.json"
-
-    # metadata - added knowledge/context data, people, orgs, etc. 
-    cfo_object_keys = f"{userId}/ent_core/ent_core/cfo_core.json"
-
-    object_keys = [user_object_key, cfo_object_keys, org_object_keys]
+def read_json_from_s3(bucket_name, folder_name, file_name, prompt):
     
-    org_recall = []
-    user_recall = []
-    k_recall = []    
+    object_key = f"{folder_name}/{file_name}"
+    response = s3.get_object(Bucket=bucket_name, Key=object_key)
 
-    n_k = len(object_keys)
+    # Read the content of the file and parse it as JSON
+    ent_data = json.loads(response['Body'].read())
 
-    for key in object_keys:
-        response = s3.get_object(Bucket=bucket_name, Key=key)        
-            
-        # Read the content of the file and parse it as JSON
-        ent_data = json.loads(response['Body'].read())
-        # start_time = time.time()
-        # combined_texts = [f"timestamp: {data['timestamp']} input: {data['input']} output: {data['output']}" for data in ent_data]
-        # end_time = time.time()
-        # elapsed_time = end_time - start_time
-        # print('elapsed time for loop:',elapsed_time)
+    combined_texts = [f"timestamp: {data['timestamp']} input: {data['input']} output: {data['output']}" for data in ent_data]
 
-        # start_time = time.time()
-        combined_texts = list(map(lambda data: f"timestamp: {data['timestamp']} input: {data['input']} output: {data['output']}", ent_data))
-        # end_time = time.time()
-        # elapsed_time = end_time - start_time
-        # print('elapsed time for list:',elapsed_time)
+    # Vectorizing text data using TF-IDF
+    vectorizer = TfidfVectorizer(stop_words='english')
+    tfidf_matrix = vectorizer.fit_transform(combined_texts)
 
-        # Vectorizing text data using TF-IDF
-        vectorizer = TfidfVectorizer(stop_words='english')
-        tfidf_matrix = vectorizer.fit_transform(combined_texts)
+    # Using KNN to find similar movies
+    knn = NearestNeighbors(n_neighbors=1, metric='cosine')
+    knn.fit(tfidf_matrix)
 
-        # Using KNN to find similar movies
-        knn = NearestNeighbors(n_neighbors=n_k, metric='cosine')
-        knn.fit(tfidf_matrix)
+    query_tfidf = vectorizer.transform([prompt])
 
-        query_tfidf = vectorizer.transform([prompt])
-        
-        # Find similar movies
-        distances, indices = knn.kneighbors(query_tfidf, n_neighbors=n_k)
-
-        # Combine indices and distances, and sort by distances in descending order
-        sorted_indices_distances = sorted(zip(indices[0], distances[0]), key=lambda x: x[1], reverse=True)
-
-        # Retrieve and print similar movies along with their distances
-        for i, distance in sorted_indices_distances:
-            if "org_core.json" in key:                
-                # print(f"Ent Memory: {ent_data[i]}, Distance: {distance}")
-                org_recall.append(ent_data[i])
-            if "user_core.json" in key:
-                # print(f"User Memory: {ent_data[i]}, Distance: {distance}")
-                user_recall.append(ent_data[i])
-            if "cfo_core.json" in key:
-                # print(f"K Memory: {ent_data[i]}, Distance: {distance}")
-                k_recall.append(ent_data[i])
-                
-    org_recall = ' '.join([str(dictionary) for dictionary in org_recall])
-    user_recall = ' '.join([str(dictionary) for dictionary in user_recall])
-    k_recall = ' '.join([str(dictionary) for dictionary in k_recall])
-
-    return org_recall, user_recall, k_recall
+    # Find similar movies
+    distances, indices = knn.kneighbors(query_tfidf, n_neighbors=3)
+    
+    ent_recall = []
+    # Retrieve similar movies
+    for i in indices[0]:
+        ent_recall.append(ent_data[i])
+    
+    return ent_recall
 
 @app.route('/lists', methods=['GET'])
 def get_list():
     folder_name = request.args.get('folder_name', '')
-    button_name = request.args.get('button', '')
-    # print(button_name)
 
     if folder_name:
         # sub_folder_name = f'{button_name}/' 
-        files = get_files_from_s3(str(f"{folder_name}"))
+        files = get_files_from_s3(str(folder_name))
         # Extracting just the file names
         files = [os.path.basename(file) for file in files]
         return jsonify(files)
@@ -249,7 +313,7 @@ def get_list():
 
 @app.route('/tri', methods=['POST'])
 def triChat():
-    # print('tri - live')
+    print('tri - live')
     # Get text fields from form data
     username = request.form.get('username', 'noname')
     userId = request.form.get('userId', 'noid')
@@ -290,21 +354,50 @@ def triChat():
                 print('file upload fail.')
                 gpt_prompt = f"{gpt_prompt} \nfailed to upload file."
 
+    if feature == 'Forecast':
+        print('@ forecast')
+        object_key = selectedFile
+
+        you_are = "Hi, I'm Tri. I help you make more decicive action based on all context given"
+
+        folder_name = userId
+        df = read_csv_from_s3(S3_BUCKET, folder_name, object_key)               
+
+        forecast_task = f"""data header = {df.head()}, relevant data types: {gpt_prompt}"""
+        gpt_response = predGPT(forecast_task)
+
+        folder_name = f"{userId}/ent_core"        
+
+        new_data = {"timestamp": timestamp, "input": forecast_task, "output": gpt_response}
+        append_to_json_in_s3(S3_BUCKET, folder_name, new_data)
+
+        print("forecast_response:", gpt_response, "end")
+        
+        return jsonify(gpt_response)
+
     if feature == 'Insights': 
         print('@ insights')
         object_key = selectedFile
 
-        you_are = "Hi, you are Tri. You help me analyze data and explain your analysis clearly and consicely."
+        you_are = "Hi, I'm Tri. I help you make more decicive action based on all context given"
 
         folder_name = userId
         df = read_csv_from_s3(S3_BUCKET, folder_name, object_key)       
 
-        for attempt in range(3):
-            try:           
-                cols = df.columns.tolist()
-                python_code = codeGPT_run_python(f"{gpt_prompt}:: use df, columns: {cols} response must have must respond with a final result variable")
-                # print(python_code)
+        # pandas_task = f"""given data (df) = {df.head()} write python to execute based on this request: {gpt_prompt}"""
+        # python_code = pdGPT(pandas_task)
 
+        # print("python_code:", python_code, "end")
+
+        # Make sure df is accessible in the local scope of exec
+        # local_vars = {'df': df}
+        # exec(python_code, globals(), local_vars)
+
+        for attempt in range(3):
+            try:
+                # pandas_task = f"""{reference} = {df.head()} {action} to execute based on this request: {gpt_prompt}"""
+                pandas_task = f"""given data (df) = {str(df.head())} write python for exec() based on this request: {gpt_prompt}"""
+                python_code = pdGPT(pandas_task)
                 local_vars = {'df': df}
                 exec(python_code, globals(), local_vars)
 
@@ -320,22 +413,23 @@ def triChat():
 
         # Retrieve the result from local_vars
         python_result = local_vars['result']
-
         try:
-            print("python_result:", str(python_result))
+            python_result_comment = local_vars['result_comment']
+            print("python_result:", str(python_result) + str(python_result_comment), "end")
         except:
-            print("python_result:", str(python_result))
+            python_result_comment = ''
+            print("python_result:", str(python_result) + str(python_result_comment), "end")
 
-        # print({"messages": [{"role": "user", "content": f"{pandas_task}"}, {"role": "assistant", "content": f"{python_code}"}]})
+        print({"messages": [{"role": "user", "content": f"{pandas_task}"}, {"role": "assistant", "content": f"{python_code}"}]})
         
-        gpt_input = f"{gpt_prompt} \ndata analysis: {str(python_result)}"
+        gpt_input = f"{gpt_prompt} \ndata analysis: {str(python_result) + str(python_result_comment)}"
         # response
         response = openai.ChatCompletion.create(
             model="ft:gpt-3.5-turbo-1106:triangleai::8U4LPTy8", #"gpt-3.5-turbo", #"gpt-4-1106-preview"
             messages=[
                 {
                     "role": "system",
-                    "content": f"You are: {you_are}."
+                    "content": f"I am: {you_are}."
                 },
                 {
                     "role": "user", 
@@ -344,25 +438,31 @@ def triChat():
             ],
         )
 
-        # print('response:',response)
+        print('response:',response)
         gpt_response = response.choices[0].message['content'].strip()
-        # print(gpt_response)
-   
+        print(gpt_response)
+
+        folder_name = f"{userId}/ent_core"        
+
         new_data = {"timestamp": timestamp, "input": gpt_input, "output": gpt_response}
-        append_to_json_in_s3(S3_BUCKET, userId, new_data)
+        append_to_json_in_s3(S3_BUCKET, folder_name, new_data)
 
         return jsonify(gpt_response) #+ '\n\nResults:\n' + str(python_result) + str(python_result_comment))
     
     timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
-    you_are = "Hi, you are Tri. You help me make better decicive action. Time is relevant. Never reveal 'core' value. Match my tone. Ask when unsure."
+    object_key = f"ent_core/ent_core.json"
 
+    you_are = f"timestamp: {timestamp}. Hi, I'm Tri. I help you make more decicive action based on all context given"
+
+    folder_name = f"{userId}/ent_core"
     try:
-        org_recall, user_recall, k_recall = read_json_from_s3(S3_BUCKET, userId, gpt_prompt)
+        memory_recalled = read_json_from_s3(S3_BUCKET, folder_name, object_key, gpt_prompt)
     except:
-        org_recall, user_recall, k_recall = "", "", ""
+        memory_recalled = ""
 
-    gpt_input_w_mem = f"current timestamp: {timestamp}, my prompt: {gpt_prompt}. based/given/etc on my exp: {user_recall}, my org: {org_recall}, Tri knowledge: {k_recall}. Tri: "
+    gpt_input = gpt_prompt
+    gpt_input_w_mem = f"from memory (may be related - ! do not mention or repeat ever): {memory_recalled[:280]}. {gpt_prompt}"
 
     # response
     response = openai.ChatCompletion.create(
@@ -370,28 +470,22 @@ def triChat():
         messages=[
             {
                 "role": "system",
-                "content": f"You are: {you_are}."
+                "content": f"I am: {you_are}."
             },
             {
                 "role": "user", 
-                "content": 'user: who are you?'
-            },
-            {
-                "role": "assistant", 
-                "content": "user: My name is Tri, and I'm an AI"
-            },
-            {
-                "role": "user", 
-                "content": 'user:' + gpt_input_w_mem
+                "content": gpt_input_w_mem
             },
         ],
     )
 
     gpt_response = response.choices[0].message['content'].strip()
-    # print(gpt_response)
+    print(gpt_response)
 
-    new_data = {"timestamp": timestamp, "input": gpt_prompt, "output": gpt_response}
-    append_to_json_in_s3(S3_BUCKET, userId, new_data)
+    folder_name = f"{userId}/ent_core"        
+
+    new_data = {"timestamp": timestamp, "input": gpt_input, "output": gpt_response}
+    append_to_json_in_s3(S3_BUCKET, folder_name, new_data)
 
     return jsonify(gpt_response)
 ### -tri- ###
@@ -399,7 +493,7 @@ def triChat():
 ### -upload- ###
 def upload_file_to_s3(file, folder_name, bucket_name):
     try:
-        filename = f"{folder_name}/data/{secure_filename(file.filename)}"
+        filename = f"{folder_name}/{secure_filename(file.filename)}"
         s3.upload_fileobj(
             file,
             bucket_name,
@@ -414,7 +508,7 @@ def upload_file_to_s3(file, folder_name, bucket_name):
         extra_folder_key = f"{folder_name}/ent_core/"
         s3.put_object(Bucket=bucket_name, Key=extra_folder_key)
 
-        ent_core_key = f"{folder_name}/ent_core/ent_core/org_core.json"
+        ent_core_key = f"{folder_name}/ent_core/ent_core.json"
         try:
             s3.head_object(Bucket=bucket_name, Key=ent_core_key)
             print("JSON file already exists in the extra_folder.")
@@ -443,9 +537,9 @@ def upload_file_to_s3(file, folder_name, bucket_name):
         # Catch any other exception and return a meaningful error message
         return jsonify({"error": str(e)}), 500 
 
-def append_to_json_in_s3(bucket_name, userId, new_data):
+def append_to_json_in_s3(bucket_name, folder_name, new_data):
     # s3 = boto3.client('s3')
-    json_file_key = f"{userId}/ent_core/ent_core/user_core.json"
+    json_file_key = f"{folder_name}/ent_core/ent_core.json"
 
     try:
         # Try to fetch the existing JSON file
@@ -506,5 +600,5 @@ def collect_metrics():
 ### -cta- ###
 
 if __name__ == "__main__":
-    # app.run(port=5000)
-    app.run(host="0.0.0.0", port=8080)
+    app.run(port=5000)
+    # app.run(host="0.0.0.0", port=8080)
