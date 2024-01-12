@@ -217,13 +217,13 @@ def read_json_from_s3(bucket_name, userId, prompt):
         # Retrieve and print similar movies along with their distances
         for i, distance in sorted_indices_distances:
             if "org_core.json" in key:                
-                # print(f"Ent Memory: {ent_data[i]}, Distance: {distance}")
+                print(f"Ent Memory: {ent_data[i]}, Distance: {distance}")
                 org_recall.append(ent_data[i])
             if "user_core.json" in key:
-                # print(f"User Memory: {ent_data[i]}, Distance: {distance}")
+                print(f"User Memory: {ent_data[i]}, Distance: {distance}")
                 user_recall.append(ent_data[i])
             if "cfo_core.json" in key:
-                # print(f"K Memory: {ent_data[i]}, Distance: {distance}")
+                print(f"K Memory: {ent_data[i]}, Distance: {distance}")
                 k_recall.append(ent_data[i])
                 
     org_recall = ' '.join([str(dictionary) for dictionary in org_recall])
@@ -234,18 +234,40 @@ def read_json_from_s3(bucket_name, userId, prompt):
 
 @app.route('/lists', methods=['GET'])
 def get_list():
-    folder_name = request.args.get('folder_name', '')
+    userId = request.args.get('userId', '')
     button_name = request.args.get('button', '')
     # print(button_name)
 
-    if folder_name:
+    if userId:
         # sub_folder_name = f'{button_name}/' 
-        files = get_files_from_s3(str(f"{folder_name}/data"))
+        files = get_files_from_s3(str(f"{userId}/data"))
         # Extracting just the file names
         files = [os.path.basename(file) for file in files]
         return jsonify(files)
     else:
         return jsonify([]), 404
+
+@app.route('/delete_file', methods=['POST'])
+def delete_file():
+    data = request.get_json()  # Get JSON data from the request body
+    userId = data.get('userId', '')
+    filename = data.get('filename', '')
+
+    # Define your bucket name here
+    S3_BUCKET = f'tri-cfo-uploads'
+    object_key = f'{userId}/data/{filename}'
+
+    # File deletion logic
+    try:
+        response = s3.delete_object(Bucket=S3_BUCKET, Key=object_key)    
+        print("Response: ", response)
+        response_per_user = f'{filename} has been deleted successfully.'
+        return jsonify({'message':response_per_user})
+    except ClientError as e:
+        # Handle the exception
+        print(str(e))
+        response_per_user = f'file deletion failed.'
+        return jsonify({'message':response_per_user})
 
 @app.route('/tri', methods=['POST'])
 def triChat():
