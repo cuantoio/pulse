@@ -70,7 +70,7 @@ def run_test():
 
 @app.route('/eb')
 def run_eb():
-    return 'eb-live alpha tri v3.15'
+    return 'eb-live alpha tri v3.16'
 
 def save_chat_history(username, timestamp, chat):
     table_chat_history.put_item(
@@ -240,7 +240,7 @@ def get_list():
 
     if folder_name:
         # sub_folder_name = f'{button_name}/' 
-        files = get_files_from_s3(str(f"{folder_name}"))
+        files = get_files_from_s3(str(f"{folder_name}/data"))
         # Extracting just the file names
         files = [os.path.basename(file) for file in files]
         return jsonify(files)
