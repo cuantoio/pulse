@@ -70,7 +70,7 @@ def run_test():
 
 @app.route('/eb')
 def run_eb():
-    return 'eb-live alpha tri v3.16'
+    return 'eb-live alpha tri v3.2'
 
 def save_chat_history(username, timestamp, chat):
     table_chat_history.put_item(
@@ -149,9 +149,9 @@ def get_files_from_s3(folder):
     files = [item['Key'] for item in response.get('Contents', [])]
     return files
 
-def read_csv_from_s3(bucket_name, folder_name, file_name):
+def read_csv_from_s3(bucket_name, object_key):
     # Construct the full object key with folder and file name
-    object_key = f"{folder_name}/{file_name}"
+    object_key = f"{object_key}"
 
     # Get the object from S3
     csv_obj = s3.get_object(Bucket=bucket_name, Key=object_key)
@@ -269,6 +269,27 @@ def delete_file():
         response_per_user = f'file deletion failed.'
         return jsonify({'message':response_per_user})
 
+@app.route('/get_data', methods=['POST'])
+def get_data():
+    data = request.get_json()
+    userId = data.get('userId', '')
+    filename = data.get('filename', '')
+    
+    # Define your bucket name here
+    S3_BUCKET = f'tri-cfo-uploads'
+    object_key = f'{userId}/data/{filename}'
+    
+    try:
+        df = read_csv_from_s3(S3_BUCKET, object_key)
+        # Convert DataFrame to JSON
+        json_str = df.head(7).to_json(orient='records')
+        
+        # Return JSON response
+        return jsonify(json_str)
+
+    except Exception as e:        
+        return jsonify("I couldn't load any data.")
+
 @app.route('/tri', methods=['POST'])
 def triChat():
     # print('tri - live')
@@ -316,10 +337,12 @@ def triChat():
         print('@ insights')
         object_key = selectedFile
 
-        you_are = "Hi, you are Tri. You help me analyze data and explain your analysis clearly and consicely."
+        you_are = "Hi, you are Tri. You help me analyze data and explain your analysis clearly and consicely while providing requested data and other details."
+        
+        S3_BUCKET = f'tri-cfo-uploads'
+        object_key = f'{userId}/data/{selectedFile}'
 
-        folder_name = userId
-        df = read_csv_from_s3(S3_BUCKET, folder_name, object_key)       
+        df = read_csv_from_s3(S3_BUCKET, object_key) 
 
         for attempt in range(3):
             try:           
@@ -528,5 +551,5 @@ def collect_metrics():
 ### -cta- ###
 
 if __name__ == "__main__":
-    app.run(port=5000)
-    # app.run(host="0.0.0.0", port=8080)
+    # app.run(port=5000)
+    app.run(host="0.0.0.0", port=8080)
