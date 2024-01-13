@@ -70,7 +70,7 @@ def run_test():
 
 @app.route('/eb')
 def run_eb():
-    return 'eb-live alpha tri v3.2'
+    return 'eb-live alpha tri v3.21'
 
 def save_chat_history(username, timestamp, chat):
     table_chat_history.put_item(
@@ -235,39 +235,116 @@ def read_json_from_s3(bucket_name, userId, prompt):
 @app.route('/lists', methods=['GET'])
 def get_list():
     userId = request.args.get('userId', '')
-    button_name = request.args.get('button', '')
-    # print(button_name)
-
+    directory = request.args.get('directory', '')
+    print("/lists - directory:", directory)
+    
     if userId:
-        # sub_folder_name = f'{button_name}/' 
-        files = get_files_from_s3(str(f"{userId}/data"))
-        # Extracting just the file names
-        files = [os.path.basename(file) for file in files]
-        return jsonify(files)
+        # Ensure the directory path ends with a '/'
+        if directory and not directory.endswith('/'):
+            directory += '/'
+
+        items = get_files_from_s3(f"{userId}/{directory}")
+        # Calculating the depth of the specified directory
+        directory_depth = directory.count('/')
+
+        # Separating files and folders
+        files = []
+        folders = []
+        for item in items:
+            # Exclude the directory itself from the list
+            if item == f"{userId}/{directory}":
+                continue
+
+            # Removing the user ID and slash from the item path for proper comparison
+            relative_item_path = item[len(f"{userId}/"):]
+
+            # Calculate the depth of each item
+            item_depth = relative_item_path.count('/')
+
+            # Check if item is directly in the directory
+            if item_depth == directory_depth or (relative_item_path.endswith('/') and item_depth == directory_depth + 1):
+                if relative_item_path.endswith('/'):
+                    folders.append(os.path.basename(relative_item_path[:-1]) + '/')
+                else:
+                    files.append(os.path.basename(relative_item_path))
+
+        # Sorting files and folders alphabetically
+        folders.sort()
+        files.sort()
+
+        # Combining folders and files, with folders first
+        all_items = folders + files
+
+        return jsonify(all_items)
     else:
         return jsonify([]), 404
 
-@app.route('/delete_file', methods=['POST'])
-def delete_file():
+
+@app.route('/add_file', methods=['POST'])
+def add_file():
     data = request.get_json()  # Get JSON data from the request body
     userId = data.get('userId', '')
     filename = data.get('filename', '')
 
-    # Define your bucket name here
-    S3_BUCKET = f'tri-cfo-uploads'
-    object_key = f'{userId}/data/{filename}'
+    directory = data.get('directory', '')
+    print("/add_file - directory:",directory)
 
-    # File deletion logic
+    return jsonify('done')
+
+@app.route('/add_folder', methods=['POST'])
+def add_folder():
+    data = request.get_json()  # Get JSON data from the request body
+    userId = data.get('userId', '')
+    folder_name = data.get('foldername', '')
+    
+    directory = data.get('directory', '')
+    print("/add_folder - directory:",directory)
+
+    if not folder_name.endswith('/'):
+        folder_name += '/'  # Ensure the folder name ends with a '/'
+
+    s3_client = boto3.client('s3')
+    S3_BUCKET = 'tri-cfo-uploads'  # Replace with your bucket name
+
+    # The key is the full path within the bucket, including the folder name
+    key = f"{userId}/{directory}{folder_name}"
+
+    # Create an empty object to represent the folder
+    s3_client.put_object(Bucket=S3_BUCKET, Key=key)
+
+    return jsonify('Folder created successfully')
+
+@app.route('/delete_file', methods=['POST'])
+def delete_file():
+    data = request.get_json()
+    userId = data.get('userId', '')
+    filename = data.get('filename', '')
+    directory = data.get('directory', '')
+
+    S3_BUCKET = 'tri-cfo-uploads'
+    object_key = f'{userId}/{directory}{filename}'
+
     try:
-        response = s3.delete_object(Bucket=S3_BUCKET, Key=object_key)    
-        print("Response: ", response)
-        response_per_user = f'{filename} has been deleted successfully.'
-        return jsonify({'message':response_per_user})
+        if filename.endswith('/'):  # If it's a folder
+            # List and delete all objects in the folder
+            objects_to_delete = s3.list_objects_v2(Bucket=S3_BUCKET, Prefix=object_key)
+            if 'Contents' in objects_to_delete:
+                delete_keys = {'Objects': [{'Key': obj['Key']} for obj in objects_to_delete['Contents']]}
+                s3.delete_objects(Bucket=S3_BUCKET, Delete=delete_keys)
+
+            # Additionally, delete the placeholder object for the folder
+            s3.delete_object(Bucket=S3_BUCKET, Key=object_key)
+
+            response_per_user = f'Folder "{filename}" has been deleted successfully.'
+        else:  # If it's a file
+            s3.delete_object(Bucket=S3_BUCKET, Key=object_key)
+            response_per_user = f'File "{filename}" has been deleted successfully.'
+
+        return jsonify({'message': response_per_user})
+
     except ClientError as e:
-        # Handle the exception
         print(str(e))
-        response_per_user = f'file deletion failed.'
-        return jsonify({'message':response_per_user})
+        return jsonify({'message': 'File or folder deletion failed.'}), 500
 
 @app.route('/get_data', methods=['POST'])
 def get_data():
@@ -333,8 +410,8 @@ def triChat():
                 print('file upload fail.')
                 gpt_prompt = f"{gpt_prompt} \nfailed to upload file."
 
-    if feature == 'Insights': 
-        print('@ insights')
+    if feature == 'Analysis': 
+        print('@ Analysis')
         object_key = selectedFile
 
         you_are = "Hi, you are Tri. You help me analyze data and explain your analysis clearly and consicely while providing requested data and other details."
@@ -407,7 +484,7 @@ def triChat():
     except:
         org_recall, user_recall, k_recall = "", "", ""
 
-    gpt_input_w_mem = f"current timestamp: {timestamp}, my prompt: {gpt_prompt}. based/given/etc on my exp: {user_recall}, my org: {org_recall}, Tri knowledge: {k_recall}. Tri: "
+    gpt_input_w_mem = f"current timestamp: {timestamp}, my prompt: {gpt_prompt}. our past conversations: {user_recall}, my organization info up to this point: {org_recall}, Tri knowledge: {k_recall}. Tri: "
 
     # response
     response = openai.ChatCompletion.create(
