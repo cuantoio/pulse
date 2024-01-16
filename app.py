@@ -70,7 +70,7 @@ def run_test():
 
 @app.route('/eb')
 def run_eb():
-    return 'eb-live alpha tri v3.22'
+    return 'eb-live alpha tri v3.22a'
 
 def save_chat_history(username, timestamp, chat):
     table_chat_history.put_item(
@@ -325,13 +325,6 @@ def add_file():
     s3.put_object(Bucket=bucket_name, Key=key, Body=csv_buffer.getvalue())
 
     return jsonify('Empty CSV file uploaded successfully')
-
-@app.route('/add_file', methods=['POST'])
-def add_file():
-    # Access other form data
-    userId = request.form.get('userId', '')
-    directory = request.form.get('directory', '')
-    filename = request.form.get('filename', '')
 
 @app.route('/add_folder', methods=['POST'])
 def add_folder():
