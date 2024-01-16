@@ -70,7 +70,7 @@ def run_test():
 
 @app.route('/eb')
 def run_eb():
-    return 'eb-live alpha tri v3.21'
+    return 'eb-live alpha tri v3.22'
 
 def save_chat_history(username, timestamp, chat):
     table_chat_history.put_item(
@@ -279,21 +279,65 @@ def get_list():
     else:
         return jsonify([]), 404
 
+@app.route('/upload_file', methods=['POST'])
+def upload_file():
+    files = request.files.getlist('files')
+    userId = request.form.get('userId', '')
+    directory = request.form.get('directory', '')
+    bucket_name = 'tri-cfo-uploads' 
+
+    for file in files:
+        if file:
+            filename = secure_filename(file.filename)
+            object_key = f'{userId}/{directory}{filename}'
+            print(object_key)
+            try:
+                s3.upload_fileobj(file, bucket_name, object_key)
+                print(f"Uploaded {filename} to S3 bucket {bucket_name} in directory {directory}")
+            except Exception as e:
+                print(f"Error uploading {filename}: {e}")
+                return jsonify(f"Error uploading {filename}"), 500
+
+    print(f"User ID: {userId}, Directory: {directory}")
+    return jsonify('Files uploaded successfully')
 
 @app.route('/add_file', methods=['POST'])
 def add_file():
-    data = request.get_json()  # Get JSON data from the request body
-    userId = data.get('userId', '')
-    filename = data.get('filename', '')
+    # Access other form data
+    userId = request.form.get('userId', '')
+    directory = request.form.get('directory', '')
+    filename = request.form.get('filename', '')
 
-    directory = data.get('directory', '')
-    print("/add_file - directory:",directory)
+    bucket_name = 'tri-cfo-uploads'
 
-    return jsonify('done')
+    # Create an empty CSV file-like object
+    csv_buffer = StringIO()
+    csv_buffer.write('') 
+
+    # Make sure we are at the start of the StringIO buffer
+    csv_buffer.seek(0)
+
+    # Create the full file path
+    key = f"{userId}/{directory}{filename}"
+    print(key)
+
+    # Upload the empty CSV file to S3
+    s3.put_object(Bucket=bucket_name, Key=key, Body=csv_buffer.getvalue())
+
+    return jsonify('Empty CSV file uploaded successfully')
+
+@app.route('/add_file', methods=['POST'])
+def add_file():
+    # Access other form data
+    userId = request.form.get('userId', '')
+    directory = request.form.get('directory', '')
+    filename = request.form.get('filename', '')
 
 @app.route('/add_folder', methods=['POST'])
 def add_folder():
     data = request.get_json()  # Get JSON data from the request body
+    print('/add_folder data POST:',data)
+
     userId = data.get('userId', '')
     folder_name = data.get('foldername', '')
     
@@ -351,21 +395,24 @@ def get_data():
     data = request.get_json()
     userId = data.get('userId', '')
     filename = data.get('filename', '')
-    
+    directory = data.get('directory', '')
+
     # Define your bucket name here
     S3_BUCKET = f'tri-cfo-uploads'
-    object_key = f'{userId}/data/{filename}'
+    object_key = f'{userId}/{directory}{filename}'
+    print('inside /get_data object_key:',object_key)
     
     try:
         df = read_csv_from_s3(S3_BUCKET, object_key)
         # Convert DataFrame to JSON
+        # json_str = df.to_json(orient='records')
         json_str = df.head(7).to_json(orient='records')
         
         # Return JSON response
         return jsonify(json_str)
 
     except Exception as e:        
-        return jsonify("I couldn't load any data.")
+        return jsonify(pd.DataFrame().to_json(orient='records'))
 
 @app.route('/tri', methods=['POST'])
 def triChat():
@@ -376,7 +423,8 @@ def triChat():
     gpt_prompt = request.form.get('prompt')
     feature = request.form.get('feature')
     selectedFile = request.form.get('activeFile')    
-    print('file and feature: ',feature, selectedFile)
+    directory = request.form.get('directory', '')
+    print("/tri directory:",directory)    
     
     S3_BUCKET = f'tri-cfo-uploads'
     timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
@@ -488,7 +536,7 @@ def triChat():
 
     # response
     response = openai.ChatCompletion.create(
-        model="ft:gpt-3.5-turbo-1106:triangleai::8U4LPTy8", #"gpt-3.5-turbo", #"gpt-4-1106-preview"
+        model="ft:gpt-3.5-turbo-1106:triangleai::8U4LPTy8", #"gpt-3.5-turbo" "gpt-4-1106-preview"
         messages=[
             {
                 "role": "system",
