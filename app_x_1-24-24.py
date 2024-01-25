@@ -71,7 +71,7 @@ def run_test():
 
 @app.route('/eb')
 def run_eb():
-    return 'eb-live alpha tri v3.3'
+    return 'eb-live alpha tri v3.22a'
 
 from decimal import Decimal
 from sklearn.feature_extraction.text import TfidfVectorizer
@@ -119,18 +119,85 @@ def read_csv_from_s3(bucket_name, object_key):
 
     return df
 
+def read_json_from_s3(bucket_name, userId, prompt):
+    # key drivers; personal, role, org, drivers, kpis, objectives etc.
+    user_object_key = f"{userId}/ent_core/ent_core/user_core.json"
+
+    # metadata - ent/org data, people, orgs, vocab, etc. 
+    org_object_keys = f"{userId}/ent_core/ent_core/org_core.json"
+
+    # metadata - added knowledge/context data, people, orgs, etc. 
+    # cfo_object_keys = f"{userId}/ent_core/ent_core/cfo_core.json"
+    cfo_object_keys = f"{userId}/ent_core/ent_core/cfo.json"
+
+    object_keys = [user_object_key, cfo_object_keys, org_object_keys]
+    
+    org_recall = []
+    user_recall = []
+    k_recall = []    
+
+    n_k = len(object_keys)
+
+    for key in object_keys:
+        response = s3.get_object(Bucket=bucket_name, Key=key)        
+            
+        # Read the content of the file and parse it as JSON
+        ent_data = json.loads(response['Body'].read())
+        # start_time = time.time()
+        # combined_texts = [f"timestamp: {data['timestamp']} input: {data['input']} output: {data['output']}" for data in ent_data]
+        # end_time = time.time()
+        # elapsed_time = end_time - start_time
+        # print('elapsed time for loop:',elapsed_time)
+
+        # start_time = time.time()
+        combined_texts = list(map(lambda data: f"timestamp: {data['timestamp']} input: {data['input']} output: {data['output']}", ent_data))
+        # end_time = time.time()
+        # elapsed_time = end_time - start_time
+        # print('elapsed time for list:',elapsed_time)
+
+        # Vectorizing text data using TF-IDF
+        vectorizer = TfidfVectorizer(stop_words='english')
+        tfidf_matrix = vectorizer.fit_transform(combined_texts)
+
+        # Using KNN to find similar movies
+        knn = NearestNeighbors(n_neighbors=n_k, metric='cosine')
+        knn.fit(tfidf_matrix)
+
+        query_tfidf = vectorizer.transform([prompt])
+        
+        # Find similar movies
+        distances, indices = knn.kneighbors(query_tfidf, n_neighbors=n_k)
+
+        # Combine indices and distances, and sort by distances in descending order
+        sorted_indices_distances = sorted(zip(indices[0], distances[0]), key=lambda x: x[1], reverse=True)
+
+        # Retrieve and print similar movies along with their distances
+        for i, distance in sorted_indices_distances:
+            if "org_core.json" in key:                
+                print(f"Ent Memory: {ent_data[i]}, Distance: {distance}")
+                org_recall.append(ent_data[i])
+            if "user_core.json" in key:
+                print(f"User Memory: {ent_data[i]}, Distance: {distance}")
+                user_recall.append(ent_data[i])
+            if "cfo.json" in key:
+                print(f"K Memory: {ent_data[i]}, Distance: {distance}")
+                k_recall.append(ent_data[i])
+                
+    org_recall = ' '.join([str(dictionary) for dictionary in org_recall])
+    user_recall = ' '.join([str(dictionary) for dictionary in user_recall])
+    k_recall = ' '.join([str(dictionary) for dictionary in k_recall])
+
+    return org_recall, user_recall, k_recall
+
 def mem_recall(userId, prompt, cores, bucket_name):  
 
     object_keys = []
 
     for c in range(0, len(cores)):
-        print(cores[c])
         object_keys.append(f"{userId}/ent_core/ent_core/{cores[c]}")    
             
     n_k = len(object_keys)
     if n_k < 2: n_k = n_k * 3
-    
-    sorted_mems = []
 
     for k in object_keys:
         response = s3.get_object(Bucket=bucket_name, Key=k)        
@@ -156,15 +223,9 @@ def mem_recall(userId, prompt, cores, bucket_name):
 
         # Combine indices and distances, and sort by distances in descending order
         sorted_indices_distances = sorted(zip(indices[0], distances[0]), key=lambda x: x[1], reverse=True)
-        
-        # Retrieve and print similar movies along with their distances
-        for i, distance in sorted_indices_distances[:n_k+1]:
-            sorted_mems.append(ent_data[i])
 
-
-    print(sorted_mems)       
-    mem_recall = ' '.join([str(dictionary) for dictionary in sorted_mems])
-    print(mem_recall)
+                
+    mem_recall = ' '.join([str(dictionary) for dictionary in sorted_indices_distances])
 
     return mem_recall
 
@@ -415,14 +476,14 @@ def triChat():
         for attempt in range(3):
             try:           
                 cols = df.columns.tolist()
-                # code_recall = "\nresult = df[df['feature'].str.contains('keyword')]['feature'].apply(lambda text: TextBlob(text).sentiment.polarity)"
-                # cores = ["ds.json","excel.json"]
-                # code_recalled = mem_recall(userId, gpt_prompt, cores, S3_BUCKET)
-                # print(timestamp, code_recalled)
-                # gpt_input= f"{gpt_prompt}:: must use given df {df.info()}, columns: {cols} response must have must respond with a final result variable. here is some sample code: {code_recalled}"
-                gpt_input= f"{gpt_prompt}:: must only use given df {df.info()}, columns: {cols} response must have must respond with a final result variable."
-                python_code = codeGPT(gpt_input)
-    
+                if attempt > 0:
+                    code_recall = "\nresult = df[df['feature'].str.contains('keyword')]['feature'].apply(lambda text: TextBlob(text).sentiment.polarity)"
+                    gpt_input= f"{gpt_prompt}:: use given df {df.info()}, columns: {cols} response must have must respond with a final result variable. here is some sample code: {code_recall}"
+                    python_code = codeGPT(gpt_input)
+                else: 
+                    gpt_input= f"{gpt_prompt}:: use given df {df.info()}, columns: {cols} response must have must respond with a final result variable"
+                    python_code = codeGPT(gpt_input)
+                    
                 # print(python_code)
                 local_vars = {'df': df}
                 exec(python_code, globals(), local_vars)
@@ -484,12 +545,12 @@ def triChat():
 
     # gpt_input_w_mem = f"current timestamp: {timestamp}, my prompt: {gpt_prompt}. our past conversations: {user_recall}, my organization info up to this point: {org_recall}, Tri knowledge: {k_recall}. Tri: "
     
-    cores = ["ds.json","user_core.json"]
+    cores = ["ds_core.json","user_core.json"]
 
     if cores != 0:
         try:
             mem_recalled = mem_recall(userId, gpt_prompt, cores, S3_BUCKET)
-            print(timestamp, mem_recalled)
+            print(timestamp, mem_recall)
             gpt_input_w_mem = f"current time & date: {timestamp}, my prompt: {gpt_prompt}. your knowledge: {mem_recalled}"
         except:
             mem_recalled = ""
@@ -629,5 +690,5 @@ def collect_metrics():
 ### -cta- ###
 
 if __name__ == "__main__":
-    # app.run(port=5000)
-    app.run(host="0.0.0.0", port=8080)
+    app.run(port=5000)
+    # app.run(host="0.0.0.0", port=8080)
