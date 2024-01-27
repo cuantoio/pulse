@@ -71,7 +71,7 @@ def run_test():
 
 @app.route('/eb')
 def run_eb():
-    return 'eb-live alpha tri v3.3'
+    return 'eb-live alpha tri v3.3a'
 
 from decimal import Decimal
 from sklearn.feature_extraction.text import TfidfVectorizer
@@ -395,8 +395,7 @@ def triChat():
     gpt_prompt = request.form.get('prompt')
     feature = request.form.get('feature')
     filename = request.form.get('filename')    
-    directory = request.form.get('directory', '')
-    print("/tri directory:",directory,'filename',filename,)    
+    directory = request.form.get('directory', '')   
     
     S3_BUCKET = f'tri-cfo-uploads'
     timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
@@ -404,7 +403,8 @@ def triChat():
     if feature == 'Analysis': 
         print('@ Analysis')
 
-        you_are = "Hi, you are Tri, a data scientist. Must analyze given data and explain your analysis clearly and consicely while providing requested data and other details. Provide hard facts, as few words as possible"
+        # you_are = "Hi, you are Tri, a data scientist. Must analyze given data and explain your analysis clearly and consicely while providing requested data and other details. Provide hard facts, as few words as possible."
+        you_are = "Hi, you are Tri, a data scientist. Analyze given data and explain your analysis consicely. Must provide result data and other necessary details per analysis."
         
         S3_BUCKET = f'tri-cfo-uploads'
         object_key = f'{userId}/{directory}{filename}'
@@ -415,12 +415,7 @@ def triChat():
         for attempt in range(3):
             try:           
                 cols = df.columns.tolist()
-                # code_recall = "\nresult = df[df['feature'].str.contains('keyword')]['feature'].apply(lambda text: TextBlob(text).sentiment.polarity)"
-                # cores = ["ds.json","excel.json"]
-                # code_recalled = mem_recall(userId, gpt_prompt, cores, S3_BUCKET)
-                # print(timestamp, code_recalled)
-                # gpt_input= f"{gpt_prompt}:: must use given df {df.info()}, columns: {cols} response must have must respond with a final result variable. here is some sample code: {code_recalled}"
-                gpt_input= f"{gpt_prompt}:: must only use given df {df.info()}, columns: {cols} response must have must respond with a final result variable."
+                gpt_input= f"{gpt_prompt}:: must only use given df info {df.info()}, columns: {cols} response must have must respond with a final result variable."
                 python_code = codeGPT(gpt_input)
     
                 # print(python_code)
@@ -436,19 +431,33 @@ def triChat():
                 if attempt == 2:
                     # Handle the failure after the final attempt
                     print("Failed after 3 attempts")
-                    return jsonify('can you rephrase that?')
+                    # return jsonify('can you rephrase that?')
+                    gpt_input = f"{gpt_prompt} \ndata result: need more clarification, for given df info {df.info()}, columns: {cols} "
+
+                    # response
+                    response = openai.ChatCompletion.create(
+                        model= "gpt-3.5-turbo", #"ft:gpt-3.5-turbo-1106:triangleai::8U4LPTy8", #"gpt-4-1106-preview", #"ft:gpt-3.5-turbo-1106:triangleai::8U4LPTy8", #"gpt-4-1106-preview"
+                        messages=[
+                            {
+                                "role": "system",
+                                "content": f"You read the prompt, review the given data information and either ask a clarifying question or suggest a new prompt to get what I need."
+                            },
+                            {
+                                "role": "user", 
+                                "content": gpt_input
+                            },
+                        ],
+                    )
+
+                    gpt_response = response.choices[0].message['content'].strip()
+                    return jsonify({"gpt_response": gpt_response, "recommend_output": ""}) 
 
         # Retrieve the result from local_vars
         python_result = local_vars['result']
-
-        try:
-            print("python_result:", str(python_result))
-        except:
-            print("python_result:", str(python_result))
-
-        # print({"messages": [{"role": "user", "content": f"{pandas_task}"}, {"role": "assistant", "content": f"{python_code}"}]})
+        print("python_result:", str(python_result))
         
-        gpt_input = f"{gpt_prompt} \ndata analysis: {str(python_result)}"
+        gpt_input = f"{gpt_prompt} \ndata result: {str(python_result)} for given df info {df.info()}, columns: {cols} "
+
         # response
         response = openai.ChatCompletion.create(
             model= "gpt-3.5-turbo", #"ft:gpt-3.5-turbo-1106:triangleai::8U4LPTy8", #"gpt-4-1106-preview", #"ft:gpt-3.5-turbo-1106:triangleai::8U4LPTy8", #"gpt-4-1106-preview"
@@ -464,27 +473,38 @@ def triChat():
             ],
         )
 
-        # print('response:',response)
         gpt_response = response.choices[0].message['content'].strip()
-        # print(gpt_response)
-   
+
+        recommend_input = f"{gpt_prompt} \ndata result: {str(python_result)} for given df info {df.info()}, columns: {cols} \ntri response: {gpt_response}"
+        
+        # response
+        response = openai.ChatCompletion.create(
+            model= "gpt-3.5-turbo", #"ft:gpt-3.5-turbo-1106:triangleai::8U4LPTy8", #"gpt-4-1106-preview", #"ft:gpt-3.5-turbo-1106:triangleai::8U4LPTy8", #"gpt-4-1106-preview"
+            messages=[
+                {
+                    "role": "system",
+                    "content": f"respond with 3 data exploraty prompts to extract insights from df (keep them as short as possible) inside a list like this: '1. recommend, \n2. recommend, \n3. recommend'"
+                },
+                {
+                    "role": "user", 
+                    "content": f"given this: {recommend_input}"
+                },
+            ],
+        )
+        
+        recommend_output = response.choices[0].message['content'].strip()
+        print('recommend_output:',recommend_output)           
+
         new_data = {"timestamp": timestamp, "input": gpt_input, "output": gpt_response}
         append_to_json_in_s3(S3_BUCKET, userId, new_data)
 
-        return jsonify(gpt_response) #+ '\n\nResults:\n' + str(python_result) + str(python_result_comment))
+        return jsonify({"gpt_response": gpt_response, "recommend_output": recommend_output}) #+ '\n\nResults:\n' + str(python_result) + str(python_result_comment))
     
     timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
     you_are = "Hi, you are Tri. You help me make better decicive action. Time is relevant. Never reveal 'core' value. Match my tone. Ask when unsure."
 
-    # try:
-    #     org_recall, user_recall, k_recall = read_json_from_s3(S3_BUCKET, userId, gpt_prompt)
-    # except:
-    #     org_recall, user_recall, k_recall = "", "", ""
-
-    # gpt_input_w_mem = f"current timestamp: {timestamp}, my prompt: {gpt_prompt}. our past conversations: {user_recall}, my organization info up to this point: {org_recall}, Tri knowledge: {k_recall}. Tri: "
-    
-    cores = ["ds.json","user_core.json"]
+    cores = ["user_core.json"]
 
     if cores != 0:
         try:
@@ -629,5 +649,5 @@ def collect_metrics():
 ### -cta- ###
 
 if __name__ == "__main__":
-    # app.run(port=5000)
+    app.run(port=5000)
     app.run(host="0.0.0.0", port=8080)
