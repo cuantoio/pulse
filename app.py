@@ -71,7 +71,7 @@ def run_test():
 
 @app.route('/eb')
 def run_eb():
-    return 'eb-live alpha tri v3.4a'
+    return 'eb-live alpha tri v3.4b'
 
 from decimal import Decimal
 from sklearn.feature_extraction.text import TfidfVectorizer
@@ -502,7 +502,9 @@ def triChat():
         print('recommend_output:',recommend_output)           
 
         new_data = {"timestamp": timestamp, "input": gpt_input, "output": gpt_response}
-        append_to_json_in_s3(S3_BUCKET, userId, new_data)
+        object_key = f'{userId}/ent_core/ent_core/ds.json'
+
+        append_to_json_in_s3(S3_BUCKET, object_key, new_data)
 
         return jsonify({"gpt_response": gpt_response, "recommend_output": recommend_output}) #+ '\n\nResults:\n' + str(python_result) + str(python_result_comment))
     
@@ -540,7 +542,9 @@ def triChat():
     # print(gpt_response)
 
     new_data = {"timestamp": timestamp, "input": gpt_prompt, "output": gpt_response}
-    append_to_json_in_s3(S3_BUCKET, userId, new_data)
+    
+    object_key = f'{userId}/{directory}user_core.json'
+    append_to_json_in_s3(S3_BUCKET, object_key, new_data)
 
     recommend_output = ""    
     return jsonify({"gpt_response": gpt_response, "recommend_output": recommend_output})
@@ -593,9 +597,9 @@ def upload_file_to_s3(file, folder_name, bucket_name):
         # Catch any other exception and return a meaningful error message
         return jsonify({"error": str(e)}), 500 
 
-def append_to_json_in_s3(bucket_name, userId, new_data):
+def append_to_json_in_s3(bucket_name, object_key, new_data):
     # s3 = boto3.client('s3')
-    json_file_key = f"{userId}/ent_core/ent_core/user_core.json"
+    json_file_key = f"{object_key}"
 
     try:
         # Try to fetch the existing JSON file
