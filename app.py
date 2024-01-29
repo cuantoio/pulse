@@ -71,7 +71,7 @@ def run_test():
 
 @app.route('/eb')
 def run_eb():
-    return 'eb-live alpha tri v3.4b'
+    return 'eb-live alpha tri v3.6'
 
 from decimal import Decimal
 from sklearn.feature_extraction.text import TfidfVectorizer
@@ -124,7 +124,7 @@ def mem_recall(userId, prompt, cores, bucket_name):
     object_keys = []
 
     for c in range(0, len(cores)):
-        print(cores[c])
+        # print(cores[c])
         object_keys.append(f"{userId}/ent_core/ent_core/{cores[c]}")    
             
     n_k = len(object_keys)
@@ -162,9 +162,9 @@ def mem_recall(userId, prompt, cores, bucket_name):
             sorted_mems.append(ent_data[i])
 
 
-    print(sorted_mems)       
+    # print(sorted_mems)       
     mem_recall = ' '.join([str(dictionary) for dictionary in sorted_mems])
-    print(mem_recall)
+    # print(mem_recall)
 
     return mem_recall
 
@@ -190,7 +190,7 @@ def get_list():
     
     # Decode the directory to handle special characters
     directory = unquote(directory)
-    print("/lists - directory:", directory)
+    # print("/lists - directory:", directory)
     
     if userId:
         # Ensure the directory path ends with a '/'
@@ -232,7 +232,7 @@ def get_list():
         # Check if the list is empty and create the directory if it is
         if not all_items:
             # Assuming you have a function to create directories in S3
-            print(f"Created directory {userId}/data/Data/")
+            # print(f"Created directory {userId}/data/Data/")
             create_directory_in_s3(f"{userId}/data/Data/")            
 
         return jsonify(all_items)
@@ -250,15 +250,15 @@ def upload_file():
         if file:
             filename = secure_filename(file.filename)
             object_key = f'{userId}/{directory}{filename}'
-            print(object_key)
+            # print(object_key)
             try:
                 s3.upload_fileobj(file, bucket_name, object_key)
-                print(f"Uploaded {filename} to S3 bucket {bucket_name} in directory {directory}")
+                # print(f"Uploaded {filename} to S3 bucket {bucket_name} in directory {directory}")
             except Exception as e:
                 print(f"Error uploading {filename}: {e}")
                 return jsonify(f"Error uploading {filename}"), 500
 
-    print(f"User ID: {userId}, Directory: {directory}")
+    # print(f"User ID: {userId}, Directory: {directory}")
     return jsonify('Files uploaded successfully')
 
 @app.route('/duplicate', methods=['POST'])
@@ -317,7 +317,7 @@ def add_file():
 
     # Create the full file path
     key = f"{userId}/{directory}{filename}"
-    print(key)
+    # print(key)
 
     # Upload the empty CSV file to S3
     s3.put_object(Bucket=bucket_name, Key=key, Body=csv_buffer.getvalue())
@@ -327,13 +327,13 @@ def add_file():
 @app.route('/add_folder', methods=['POST'])
 def add_folder():
     data = request.get_json()  # Get JSON data from the request body
-    print('/add_folder data POST:',data)
+    # print('/add_folder data POST:',data)
 
     userId = data.get('userId', '')
     folder_name = data.get('foldername', '')
     
     directory = data.get('directory', '')
-    print("/add_folder - directory:",directory)
+    # print("/add_folder - directory:",directory)
 
     if not folder_name.endswith('/'):
         folder_name += '/'  # Ensure the folder name ends with a '/'
@@ -397,7 +397,7 @@ def get_data():
     # Define your bucket name here
     S3_BUCKET = f'tri-ds-beta'
     object_key = f'{userId}/{directory}{filename}'
-    print('inside /get_data object_key:',object_key)
+    # print('inside /get_data object_key:',object_key)
     
     try:
         df = read_csv_from_s3(S3_BUCKET, object_key)    
@@ -426,14 +426,13 @@ def triChat():
     timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
     if feature == 'Analysis': 
-        print('@ Analysis')
+        # print('@ Analysis')
 
         # you_are = "Hi, you are Tri, a data scientist. Must analyze given data and explain your analysis clearly and consicely while providing requested data and other details. Provide hard facts, as few words as possible."
-        you_are = "Hi, you are Tri, a data scientist. Analyze given data and explain your analysis consicely. Must provide result data and other necessary details per analysis."
+        you_are = "Hi, you are Tri, a data scientist. Analyze given data (must use given df), case sensitive, and explain your analysis consicely. Must provide result data and other necessary details per analysis. never share/talk/repeat code."
         
         S3_BUCKET = f'tri-ds-beta'
         object_key = f'{userId}/{directory}{filename}'
-        print(object_key)
 
         df = read_csv_from_s3(S3_BUCKET, object_key) 
 
@@ -442,20 +441,18 @@ def triChat():
                 cols = df.columns.tolist()
                 gpt_input= f"{gpt_prompt}:: must only use given df info {df.info()}, columns: {cols} response must have must respond with a final result variable."
                 python_code = codeGPT(gpt_input)
-    
+                # print('python code:',python_code)
                 # print(python_code)
                 local_vars = {'df': df}
                 exec(python_code, globals(), local_vars)
-                print("python_code:",python_code)
-                print("python_result:",local_vars['result'])
                 # If execution is successful, break out of the loop
                 break
             except Exception as e:
                 # Handle the exception (e.g., log it)
-                print(f"Attempt {attempt + 1} failed with error: {e}")
+                # print(f"Attempt {attempt + 1} failed with error: {e}")
                 if attempt == 2:
                     # Handle the failure after the final attempt
-                    print("Failed after 3 attempts")
+                    # print("Failed after 3 attempts")
                     # return jsonify('can you rephrase that?')
                     gpt_input = f"{gpt_prompt} \ndata result: need more clarification, for given df info {df.info()}, columns: {cols} "
 
@@ -479,7 +476,7 @@ def triChat():
 
         # Retrieve the result from local_vars
         python_result = local_vars['result']
-        print("python_result:", str(python_result))
+        # print("python_result:", str(python_result))
         
         gpt_input = f"{gpt_prompt} \ndata result: {str(python_result)} for given df info {df.info()}, columns: {cols} "
 
@@ -517,13 +514,15 @@ def triChat():
             ],
         )
         
-        recommend_output = response.choices[0].message['content'].strip()
-        print('recommend_output:',recommend_output)           
+        recommend_output = response.choices[0].message['content'].strip()             
 
-        new_data = {"timestamp": timestamp, "input": gpt_input, "output": gpt_response}
-        object_key = f'{userId}/ent_core/ent_core/ds.json'
+        object_key_analysis = f'{userId}/ent_core/ent_core/ds_analysis.json'
+        new_data_analysis = {"timestamp": timestamp, "input": gpt_input, "output": gpt_response}
+        append_to_json_in_s3(S3_BUCKET, object_key_analysis, new_data_analysis)
 
-        append_to_json_in_s3(S3_BUCKET, object_key, new_data)
+        object_key_code = f'{userId}/ent_core/ent_core/ds_code.json'
+        new_data_code = {"timestamp": timestamp, "input": gpt_input, "output": python_code}
+        append_to_json_in_s3(S3_BUCKET, object_key_code, new_data_code)
 
         return jsonify({"gpt_response": gpt_response, "recommend_output": recommend_output}) #+ '\n\nResults:\n' + str(python_result) + str(python_result_comment))
     
@@ -536,7 +535,7 @@ def triChat():
     if cores != 0:
         try:
             mem_recalled = mem_recall(userId, gpt_prompt, cores, S3_BUCKET)
-            print(timestamp, mem_recalled)
+            # print(timestamp, mem_recalled)
             gpt_input_w_mem = f"current time & date: {timestamp}, my prompt: {gpt_prompt}. your knowledge: {mem_recalled}"
         except:
             mem_recalled = ""
@@ -590,13 +589,13 @@ def upload_file_to_s3(file, folder_name, bucket_name):
         ent_core_key = f"{folder_name}/ent_core/ent_core/org_core.json"
         try:
             s3.head_object(Bucket=bucket_name, Key=ent_core_key)
-            print("JSON file already exists in the extra_folder.")
+            # print("JSON file already exists in the extra_folder.")
         except ClientError as e:
             # If the file does not exist, create a new JSON file
             if e.response['Error']['Code'] == '404':
                 json_data = {"timestamp": "init", "input": "core memory created", "output": "success"}
                 s3.put_object(Bucket=bucket_name, Key=ent_core_key, Body=json.dumps(json_data))
-                print("Created a new JSON file in the extra_folder.")
+                # print("Created a new JSON file in the extra_folder.")
 
         return presigned_url
     except FileNotFoundError:
@@ -618,7 +617,7 @@ def append_to_json_in_s3(bucket_name, object_key, new_data):
     except ClientError as e:
         # Check if the error is because the file does not exist
         if e.response['Error']['Code'] == 'NoSuchKey':
-            print("JSON file not found. Creating a new file.")
+            # print("JSON file not found. Creating a new file.")
             existing_data = []
         else:
             # Re-raise the error if it's not a 'NoSuchKey' error
@@ -630,7 +629,7 @@ def append_to_json_in_s3(bucket_name, object_key, new_data):
     # Write the updated data back to the JSON file in S3
     updated_json_data = json.dumps(existing_data)
     s3.put_object(Bucket=bucket_name, Key=json_file_key, Body=updated_json_data)
-    print("Data appended to the JSON file in S3.")
+    # print("Data appended to the JSON file in S3.")
 
 ### -cta- ###
 from werkzeug.utils import secure_filename
@@ -640,7 +639,7 @@ def collect_metrics():
     data = request.json
     interactions = data.get('interactions', [])
     
-    print("Received data:", data)
+    # print("Received data:", data)
 
     for interaction in interactions:
         timestamp = datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S")
@@ -658,11 +657,11 @@ def collect_metrics():
             )
 
         except ClientError as e:
-            print(e.response['Error']['Message'])
+            # print(e.response['Error']['Message'])
             return jsonify({'message': 'Error recording metric'}), 500
 
         except Exception as e:
-            print(str(e))
+            # print(str(e))
             return jsonify({'message': 'Internal server error'}), 500
 
     return jsonify({'message': 'Metrics recorded successfully'}), 201
