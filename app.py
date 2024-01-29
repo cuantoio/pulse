@@ -337,8 +337,14 @@ def delete_file():
     filename = data.get('filename', '')
     directory = data.get('directory', '')
 
+    # Ensure directory path ends with '/'
+    if directory and not directory.endswith('/'):
+        directory += '/'
+
     S3_BUCKET = 'tri-cfo-uploads'
     object_key = f'{userId}/{directory}{filename}'
+
+    s3 = boto3.client('s3')
 
     try:
         if filename.endswith('/'):  # If it's a folder
@@ -483,7 +489,7 @@ def triChat():
             messages=[
                 {
                     "role": "system",
-                    "content": f"respond with 3 data exploraty prompts to extract insights from df (keep them as short as possible) inside a list like this: '1. recommend, \n2. recommend, \n3. recommend'"
+                    "content": f"respond with 3 data exploraty prompts to extract insights from df (keep them as short as possible) inside a list like this: '\n1. [suggestion], \n2. [suggestion], \n3. [suggestion]'"
                 },
                 {
                     "role": "user", 
@@ -536,7 +542,8 @@ def triChat():
     new_data = {"timestamp": timestamp, "input": gpt_prompt, "output": gpt_response}
     append_to_json_in_s3(S3_BUCKET, userId, new_data)
 
-    return jsonify(gpt_response)
+    recommend_output = ""    
+    return jsonify({"gpt_response": gpt_response, "recommend_output": recommend_output})
 ### -tri- ###
 
 ### -upload- ###
