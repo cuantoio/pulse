@@ -255,7 +255,7 @@ def upload_file():
                 s3.upload_fileobj(file, bucket_name, object_key)
                 # print(f"Uploaded {filename} to S3 bucket {bucket_name} in directory {directory}")
             except Exception as e:
-                print(f"Error uploading {filename}: {e}")
+                # print(f"Error uploading {filename}: {e}")
                 return jsonify(f"Error uploading {filename}"), 500
 
     # print(f"User ID: {userId}, Directory: {directory}")
