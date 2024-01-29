@@ -98,7 +98,7 @@ def codeGPT(prompt, m="gpt-3.5-turbo"):
     return gpt_response
 
 def get_files_from_s3(folder):
-    S3_BUCKET = 'tri-cfo-uploads'
+    S3_BUCKET = 'tri-ds-beta'
 
     response = s3.list_objects_v2(Bucket=S3_BUCKET, Prefix=folder)
     files = [item['Key'] for item in response.get('Contents', [])]
@@ -170,6 +170,19 @@ def mem_recall(userId, prompt, cores, bucket_name):
 
 from urllib.parse import unquote
 
+def create_directory_in_s3(directory_path):
+    """
+    Create a directory in S3 by creating an empty file with a key that ends with a '/'
+    """
+    s3_client = boto3.client('s3')
+    bucket_name = 'tri-ds-beta'  
+    
+    s3_key = directory_path
+    if not s3_key.endswith('/'):
+        s3_key += '/'
+        
+    s3_client.put_object(Bucket=bucket_name, Key=s3_key)
+
 @app.route('/lists', methods=['GET'])
 def get_list():
     userId = request.args.get('userId', '')
@@ -216,6 +229,12 @@ def get_list():
         # Combining folders and files, with folders first
         all_items = folders + files
 
+        # Check if the list is empty and create the directory if it is
+        if not all_items:
+            # Assuming you have a function to create directories in S3
+            print(f"Created directory {userId}/data/Data/")
+            create_directory_in_s3(f"{userId}/data/Data/")            
+
         return jsonify(all_items)
     else:
         return jsonify([]), 404
@@ -225,7 +244,7 @@ def upload_file():
     files = request.files.getlist('files')
     userId = request.form.get('userId', '')
     directory = request.form.get('directory', '')
-    bucket_name = 'tri-cfo-uploads' 
+    bucket_name = 'tri-ds-beta' 
 
     for file in files:
         if file:
@@ -250,7 +269,7 @@ def duplicate_file():
     filename = request.form.get('filename', '')
     
     # Define bucket name
-    bucket_name = 'tri-cfo-uploads'
+    bucket_name = 'tri-ds-beta'
     key = f"{userId}/{directory}{filename}"
 
     # Read the original CSV file
@@ -287,7 +306,7 @@ def add_file():
     directory = request.form.get('directory', '')
     filename = request.form.get('filename', '')
 
-    bucket_name = 'tri-cfo-uploads'
+    bucket_name = 'tri-ds-beta'
 
     # Create an empty CSV file-like object
     csv_buffer = StringIO()
@@ -320,7 +339,7 @@ def add_folder():
         folder_name += '/'  # Ensure the folder name ends with a '/'
 
     s3_client = boto3.client('s3')
-    S3_BUCKET = 'tri-cfo-uploads'  # Replace with your bucket name
+    S3_BUCKET = 'tri-ds-beta'  # Replace with your bucket name
 
     # The key is the full path within the bucket, including the folder name
     key = f"{userId}/{directory}{folder_name}"
@@ -341,7 +360,7 @@ def delete_file():
     if directory and not directory.endswith('/'):
         directory += '/'
 
-    S3_BUCKET = 'tri-cfo-uploads'
+    S3_BUCKET = 'tri-ds-beta'
     object_key = f'{userId}/{directory}{filename}'
 
     s3 = boto3.client('s3')
@@ -376,7 +395,7 @@ def get_data():
     directory = data.get('directory', '')
 
     # Define your bucket name here
-    S3_BUCKET = f'tri-cfo-uploads'
+    S3_BUCKET = f'tri-ds-beta'
     object_key = f'{userId}/{directory}{filename}'
     print('inside /get_data object_key:',object_key)
     
@@ -403,7 +422,7 @@ def triChat():
     filename = request.form.get('filename')    
     directory = request.form.get('directory', '')   
     
-    S3_BUCKET = f'tri-cfo-uploads'
+    S3_BUCKET = f'tri-ds-beta'
     timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
     if feature == 'Analysis': 
@@ -412,7 +431,7 @@ def triChat():
         # you_are = "Hi, you are Tri, a data scientist. Must analyze given data and explain your analysis clearly and consicely while providing requested data and other details. Provide hard facts, as few words as possible."
         you_are = "Hi, you are Tri, a data scientist. Analyze given data and explain your analysis consicely. Must provide result data and other necessary details per analysis."
         
-        S3_BUCKET = f'tri-cfo-uploads'
+        S3_BUCKET = f'tri-ds-beta'
         object_key = f'{userId}/{directory}{filename}'
         print(object_key)
 
@@ -587,15 +606,6 @@ def upload_file_to_s3(file, folder_name, bucket_name):
     except Exception as e:
         # Catch any other exception and return a meaningful error message
         return jsonify({"error": str(e)}), 500
-
-        return presigned_url
-    except FileNotFoundError:
-        return jsonify({"error": "The file was not found"}), 404
-    except NoCredentialsError:
-        return jsonify({"error": "Credentials not available"}), 403
-    except Exception as e:
-        # Catch any other exception and return a meaningful error message
-        return jsonify({"error": str(e)}), 500 
 
 def append_to_json_in_s3(bucket_name, object_key, new_data):
     # s3 = boto3.client('s3')
