@@ -68,7 +68,7 @@ def run_test():
 
 @app.route('/eb')
 def run_eb():
-    return 'eb-live alpha tri v3.7'
+    return 'eb-live alpha tri v3.7a'
 
 from decimal import Decimal
 from sklearn.feature_extraction.text import TfidfVectorizer
@@ -104,6 +104,7 @@ def get_files_from_s3(folder):
 def read_csv_from_s3(bucket_name, object_key, sheetname=''):
     filename = object_key.split('/')[-1] 
     file_extension = object_key.split('.')[-1].lower()    
+    
     try:
         file_obj = s3.get_object(Bucket=bucket_name, Key=object_key)
         body = file_obj['Body']
@@ -116,21 +117,22 @@ def read_csv_from_s3(bucket_name, object_key, sheetname=''):
             csv_string = StringIO(file_content.decode('utf-8'))
             df = pd.read_csv(csv_string)
             sheet_names = []  # CSV files don't have sheets
+            df = df.loc[:, ~df.columns.str.contains('^Unnamed')]
         elif file_extension in ['xlsx', 'xls']:
             # For Excel files
             excel_file = BytesIO(file_content)
             xls = pd.ExcelFile(excel_file)
             sheet_names = xls.sheet_names  # Get all sheet names directly
-            
             if sheetname:
                 df = pd.read_excel(xls, sheet_name=sheetname)
+                df = df.dropna(how='all')
             else:
                 df = pd.read_excel(xls, sheet_name=sheet_names[0])
+                df = df.dropna(how='all')
         else:
             raise ValueError("Unsupported file format")
 
-        # Remove columns that start with 'Unnamed'
-        df = df.loc[:, ~df.columns.str.contains('^Unnamed')]
+        # Remove columns that start with 'Unnamed'        
         return df, sheet_names
     except Exception as e:
         # It's good practice to log errors for debugging. Adjust according to your Flask app's logging setup.
@@ -445,8 +447,7 @@ def get_data():
     response_payload = {}
     try:
         df, sheet_names = read_csv_from_s3(S3_BUCKET, object_key, sheetname)    
-        # Convert DataFrame to JSON
-        
+
         # Return JSON response        
         response_payload['data'] = df.head(25).to_json(orient='records')
         response_payload['sheet_names'] = sheet_names
@@ -475,11 +476,28 @@ def triChat():
         # you_are = "Hi, you are Tri, a data scientist. Must analyze given data and explain your analysis clearly and consicely while providing requested data and other details. Provide hard facts, as few words as possible."
         you_are = "Hi, you are Tri, a data scientist. Analyze given data (must use given df), case sensitive, and explain your analysis consicely. Must provide result data and other necessary details per analysis. never share/talk/repeat code."
         
+        parts = filename.split(" :: ")
+        if len(parts) > 1:
+            # The substring exists, and we can safely access the second part
+            sheetname = parts[1].strip()
+            filename = parts[0].strip()         
+        else:
+            sheetname = ''
+            filename = parts[0].strip()     
+
         S3_BUCKET = f'tri-ds-beta'
         object_key = f'{userId}/{directory}{filename}'
 
-        df, sheet_names = read_csv_from_s3(S3_BUCKET, object_key) 
-        
+        print('active file:', filename, "sheet:", sheetname)
+
+        # Define your bucket name here
+        S3_BUCKET = f'tri-ds-beta'
+        object_key = f'{userId}/{directory}{filename}'   
+
+        print('active file:', filename, "sheet:", sheetname)
+
+        df, sheet_names = read_csv_from_s3(S3_BUCKET, object_key, sheetname) 
+
         for attempt in range(3):
             try:           
                 cols = df.columns.tolist()
