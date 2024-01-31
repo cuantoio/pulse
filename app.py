@@ -13,7 +13,6 @@ import time
 import json
 import ast
 import re 
-import os
 
 # Updated imports
 from botocore.exceptions import NoCredentialsError, PartialCredentialsError, ClientError
@@ -28,7 +27,7 @@ import openai
 import stripe
 import os
 
-from io import StringIO
+from io import StringIO, BytesIO
 
 app = Flask(__name__)
 CORS(app)
@@ -50,10 +49,8 @@ CHAT_HISTORY_PREFIX = 'chat_history/'
 # Initialize DynamoDB client
 dynamodb = boto3.resource('dynamodb', region_name='us-west-2')
 table = dynamodb.Table(os.getenv("DYNAMODB_TABLE_INPUT_PROMPTS"))
-table_portfolio = dynamodb.Table(os.getenv("DYNAMODB_TABLE_PORTFOLIO"))
 table_user_profiles = dynamodb.Table(os.getenv("DYNAMODB_TABLE_USER_PROFILE"))
 table_chat_history = dynamodb.Table(os.getenv("DYNAMODB_TABLE_CHAT_HISTORY"))
-table_payments = dynamodb.Table(os.getenv("DYNAMODB_TABLE_PAYMENTS")) 
 
 table_TriDB = dynamodb.Table(os.getenv("DYNAMODB_TABLE_TRIDB")) 
 table_metrics = dynamodb.Table(os.getenv("DYNAMODB_TABLE_METRICS")) 
@@ -71,7 +68,7 @@ def run_test():
 
 @app.route('/eb')
 def run_eb():
-    return 'eb-live alpha tri v3.6'
+    return 'eb-live alpha tri v3.6a'
 
 from decimal import Decimal
 from sklearn.feature_extraction.text import TfidfVectorizer
@@ -105,19 +102,34 @@ def get_files_from_s3(folder):
     return files
 
 def read_csv_from_s3(bucket_name, object_key):
-    # Construct the full object key with folder and file name
-    object_key = f"{object_key}"
+    filename = object_key.split('/')[-1] 
+    file_extension = object_key.split('.')[-1].lower()    
+    try:
+        file_obj = s3.get_object(Bucket=bucket_name, Key=object_key)
+        body = file_obj['Body']
+        print(f"File Name: {object_key}")  # Log the file name for debugging    
 
-    # Get the object from S3
-    csv_obj = s3.get_object(Bucket=bucket_name, Key=object_key)
-    
-    # Read the object's body into a DataFrame
-    body = csv_obj['Body']
-    csv_string = StringIO(body.read().decode('utf-8'))
-    df = pd.read_csv(csv_string)
-    df = df.loc[:, ~df.columns.str.contains('^Unnamed')]
+        if file_extension == 'csv':
+            # For CSV files
+            csv_string = StringIO(body.read().decode('utf-8'))
+            df = pd.read_csv(csv_string)
+        elif file_extension in ['xlsx', 'xls']:
+            # For Excel files
+            excel_file = BytesIO(body.read())
+            xls = pd.read_excel(excel_file, sheet_name=None)
+            sheet_names = list(xls.keys())
+            print(f"Sheet Names: {sheet_names}")  # Log sheet names for debugging
+            df = next(iter(xls.values()))  # Assuming the first sheet is desired
+        else:
+            raise ValueError("Unsupported file format")
 
-    return df
+        # Remove columns that start with 'Unnamed'
+        df = df.loc[:, ~df.columns.str.contains('^Unnamed')]
+        return df
+    except Exception as e:
+        # It's good practice to log errors for debugging. Adjust according to your Flask app's logging setup.
+        print(f"Error reading file {object_key} from S3: {e}")
+        return None
 
 def mem_recall(userId, prompt, cores, bucket_name):  
 
@@ -125,7 +137,7 @@ def mem_recall(userId, prompt, cores, bucket_name):
 
     for c in range(0, len(cores)):
         # print(cores[c])
-        object_keys.append(f"{userId}/ent_core/ent_core/{cores[c]}")    
+        object_keys.append(f"{userId}/ent_core/{cores[c]}")    
             
     n_k = len(object_keys)
     if n_k < 2: n_k = n_k * 3
@@ -246,20 +258,42 @@ def upload_file():
     directory = request.form.get('directory', '')
     bucket_name = 'tri-ds-beta' 
 
+    # for file in files:
+    #     if file:
+    #         filename = secure_filename(file.filename)
+    #         object_key = f'{userId}/{directory}{filename}'
+    #         # print(object_key)
+    #         try:
+    #             s3.upload_fileobj(file, bucket_name, object_key)
+    #             # print(f"Uploaded {filename} to S3 bucket {bucket_name} in directory {directory}")
+    #         except Exception as e:
+    #             # print(f"Error uploading {filename}: {e}")
+    #             return jsonify(f"Error uploading {filename}"), 500
+
+    # # print(f"User ID: {userId}, Directory: {directory}")
+    # return jsonify('Files uploaded successfully')
+
     for file in files:
         if file:
             filename = secure_filename(file.filename)
-            object_key = f'{userId}/{directory}{filename}'
-            # print(object_key)
-            try:
-                s3.upload_fileobj(file, bucket_name, object_key)
-                # print(f"Uploaded {filename} to S3 bucket {bucket_name} in directory {directory}")
-            except Exception as e:
-                # print(f"Error uploading {filename}: {e}")
-                return jsonify(f"Error uploading {filename}"), 500
-
-    # print(f"User ID: {userId}, Directory: {directory}")
-    return jsonify('Files uploaded successfully')
+            # Check if the file has the correct .xlsx or .xls extension
+            if filename.endswith(('.xlsx', '.xls')):
+                object_key = f'{userId}/{directory}{filename}'
+                
+                try:
+                    # Upload the file
+                    s3.upload_fileobj(file, bucket_name, object_key)
+                except ClientError as e:
+                    # Handle AWS specific exceptions
+                    return jsonify(f"Error uploading {filename}: {e}"), 500
+                except Exception as e:
+                    # Handle general exceptions
+                    return jsonify(f"Unexpected error occurred while uploading {filename}: {e}"), 500
+            else:
+                # Handle case where file is not an Excel file
+                return jsonify(f"File {filename} is not a valid Excel file. Please upload .xlsx or .xls files."), 400
+    # If all files are processed successfully
+    return jsonify("All files uploaded successfully"), 200
 
 @app.route('/duplicate', methods=['POST'])
 def duplicate_file():
@@ -285,14 +319,6 @@ def duplicate_file():
     # Read and return the newly saved duplicate file
     duplicated_csv_df = read_csv_from_s3(bucket_name, new_key)
     return duplicated_csv_df.to_json()  # Convert the DataFrame to JSON for HTTP response
-
-def read_csv_from_s3(bucket_name, object_key):
-    csv_obj = s3.get_object(Bucket=bucket_name, Key=object_key)
-    body = csv_obj['Body']
-    csv_string = StringIO(body.read().decode('utf-8'))
-    df = pd.read_csv(csv_string)
-    df = df.loc[:, ~df.columns.str.contains('^Unnamed')]
-    return df
 
 def save_csv_to_s3(bucket_name, df, object_key):
     csv_buffer = StringIO()
@@ -387,6 +413,9 @@ def delete_file():
         print(str(e))
         return jsonify({'message': 'File or folder deletion failed.'}), 500
 
+def print_dumb():
+    print('well that fials')
+
 @app.route('/get_data', methods=['POST'])
 def get_data():
     data = request.get_json()
@@ -402,9 +431,9 @@ def get_data():
     try:
         df = read_csv_from_s3(S3_BUCKET, object_key)    
         # Convert DataFrame to JSON
-        # json_str = df.to_json(orient='records')
-        json_str = df.head(7).to_json(orient='records')
-        
+        json_str = df.head(25).to_json(orient='records')
+        print(json_str)
+        print_dumb()
         # Return JSON response
         return jsonify(json_str)
 
@@ -561,51 +590,13 @@ def triChat():
 
     new_data = {"timestamp": timestamp, "input": gpt_prompt, "output": gpt_response}
     
-    object_key = f'{userId}/{directory}user_core.json'
+    object_key = f'{userId}/ent_core/user_core.json'
     append_to_json_in_s3(S3_BUCKET, object_key, new_data)
 
     recommend_output = ""    
     return jsonify({"gpt_response": gpt_response, "recommend_output": recommend_output})
+
 ### -tri- ###
-
-### -upload- ###
-def upload_file_to_s3(file, folder_name, bucket_name):
-    try:
-        filename = f"{folder_name}/data/{secure_filename(file.filename)}"
-        s3.upload_fileobj(
-            file,
-            bucket_name,
-            filename,
-            ExtraArgs={
-                "ContentType": file.content_type
-            }
-        )
-        presigned_url = s3.generate_presigned_url('get_object', Params={'Bucket': bucket_name, 'Key': filename}, ExpiresIn=3600)
-
-        # Creating an additional "folder" inside the folder_name
-        extra_folder_key = f"{folder_name}/ent_core/"
-        s3.put_object(Bucket=bucket_name, Key=extra_folder_key)
-
-        ent_core_key = f"{folder_name}/ent_core/ent_core/org_core.json"
-        try:
-            s3.head_object(Bucket=bucket_name, Key=ent_core_key)
-            # print("JSON file already exists in the extra_folder.")
-        except ClientError as e:
-            # If the file does not exist, create a new JSON file
-            if e.response['Error']['Code'] == '404':
-                json_data = {"timestamp": "init", "input": "core memory created", "output": "success"}
-                s3.put_object(Bucket=bucket_name, Key=ent_core_key, Body=json.dumps(json_data))
-                # print("Created a new JSON file in the extra_folder.")
-
-        return presigned_url
-    except FileNotFoundError:
-        return jsonify({"error": "The file was not found"}), 404
-    except boto3.exceptions.NoCredentialsError:
-        return jsonify({"error": "Credentials not available"}), 403
-    except Exception as e:
-        # Catch any other exception and return a meaningful error message
-        return jsonify({"error": str(e)}), 500
-
 def append_to_json_in_s3(bucket_name, object_key, new_data):
     # s3 = boto3.client('s3')
     json_file_key = f"{object_key}"

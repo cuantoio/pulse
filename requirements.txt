@@ -35,3 +35,6 @@ threadpoolctl==3.2.0
 
 Flask==2.0.1
 Werkzeug==2.0.1
+
+et-xmlfile==1.1.0
+openpyxl==3.1.2
