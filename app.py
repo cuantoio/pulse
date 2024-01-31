@@ -68,7 +68,7 @@ def run_test():
 
 @app.route('/eb')
 def run_eb():
-    return 'eb-live alpha tri v3.6c'
+    return 'eb-live alpha tri v3.7'
 
 from decimal import Decimal
 from sklearn.feature_extraction.text import TfidfVectorizer
@@ -313,7 +313,7 @@ def duplicate_file():
     key = f"{userId}/{directory}{filename}"
 
     # Read the original CSV file
-    original_csv_df = read_csv_from_s3(bucket_name, key)
+    original_csv_df, sheet_names = read_csv_from_s3(bucket_name, key)
 
     # Create a new filename for the duplicate
     new_filename = f"{filename.split('.')[0]}_duplicate.csv"
@@ -323,7 +323,7 @@ def duplicate_file():
     save_csv_to_s3(bucket_name, original_csv_df, new_key)
 
     # Read and return the newly saved duplicate file
-    duplicated_csv_df = read_csv_from_s3(bucket_name, new_key)
+    duplicated_csv_df, sheet_names = read_csv_from_s3(bucket_name, new_key)
     return duplicated_csv_df.to_json()  # Convert the DataFrame to JSON for HTTP response
 
 def save_csv_to_s3(bucket_name, df, object_key):
@@ -446,10 +446,9 @@ def get_data():
     try:
         df, sheet_names = read_csv_from_s3(S3_BUCKET, object_key, sheetname)    
         # Convert DataFrame to JSON
-        json_str = df.head(25).to_json(orient='records')
         
         # Return JSON response        
-        response_payload['data'] = df.to_json(orient='records')
+        response_payload['data'] = df.head(25).to_json(orient='records')
         response_payload['sheet_names'] = sheet_names
         return jsonify(response_payload)
 
@@ -479,8 +478,8 @@ def triChat():
         S3_BUCKET = f'tri-ds-beta'
         object_key = f'{userId}/{directory}{filename}'
 
-        df = read_csv_from_s3(S3_BUCKET, object_key) 
-
+        df, sheet_names = read_csv_from_s3(S3_BUCKET, object_key) 
+        
         for attempt in range(3):
             try:           
                 cols = df.columns.tolist()
