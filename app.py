@@ -68,7 +68,7 @@ def run_test():
 
 @app.route('/eb')
 def run_eb():
-    return 'eb-live alpha tri v3.6a'
+    return 'eb-live alpha tri v3.6b'
 
 from decimal import Decimal
 from sklearn.feature_extraction.text import TfidfVectorizer
@@ -101,7 +101,7 @@ def get_files_from_s3(folder):
     files = [item['Key'] for item in response.get('Contents', [])]
     return files
 
-def read_csv_from_s3(bucket_name, object_key):
+def read_csv_from_s3(bucket_name, object_key, sheetname=''):
     filename = object_key.split('/')[-1] 
     file_extension = object_key.split('.')[-1].lower()    
     try:
@@ -109,23 +109,29 @@ def read_csv_from_s3(bucket_name, object_key):
         body = file_obj['Body']
         print(f"File Name: {object_key}")  # Log the file name for debugging    
 
+        file_content = body.read()
+
         if file_extension == 'csv':
             # For CSV files
-            csv_string = StringIO(body.read().decode('utf-8'))
+            csv_string = StringIO(file_content.decode('utf-8'))
             df = pd.read_csv(csv_string)
+            sheet_names = []  # CSV files don't have sheets
         elif file_extension in ['xlsx', 'xls']:
             # For Excel files
-            excel_file = BytesIO(body.read())
-            xls = pd.read_excel(excel_file, sheet_name=None)
-            sheet_names = list(xls.keys())
-            print(f"Sheet Names: {sheet_names}")  # Log sheet names for debugging
-            df = next(iter(xls.values()))  # Assuming the first sheet is desired
+            excel_file = BytesIO(file_content)
+            xls = pd.ExcelFile(excel_file)
+            sheet_names = xls.sheet_names  # Get all sheet names directly
+            
+            if sheetname:
+                df = pd.read_excel(xls, sheet_name=sheetname)
+            else:
+                df = pd.read_excel(xls, sheet_name=sheet_names[0])
         else:
             raise ValueError("Unsupported file format")
 
         # Remove columns that start with 'Unnamed'
         df = df.loc[:, ~df.columns.str.contains('^Unnamed')]
-        return df
+        return df, sheet_names
     except Exception as e:
         # It's good practice to log errors for debugging. Adjust according to your Flask app's logging setup.
         print(f"Error reading file {object_key} from S3: {e}")
@@ -413,9 +419,6 @@ def delete_file():
         print(str(e))
         return jsonify({'message': 'File or folder deletion failed.'}), 500
 
-def print_dumb():
-    print('well that fials')
-
 @app.route('/get_data', methods=['POST'])
 def get_data():
     data = request.get_json()
@@ -423,19 +426,32 @@ def get_data():
     filename = data.get('filename', '')
     directory = data.get('directory', '')
 
+    parts = filename.split(" :: ")
+    if len(parts) > 1:
+        # The substring exists, and we can safely access the second part
+        sheetname = parts[1].strip()
+        filename = parts[0].strip()         
+    else:
+        sheetname = ''
+        filename = parts[0].strip()     
+
+    print('active file:', filename, "sheet:", sheetname)
+
     # Define your bucket name here
     S3_BUCKET = f'tri-ds-beta'
     object_key = f'{userId}/{directory}{filename}'
     # print('inside /get_data object_key:',object_key)
     
+    response_payload = {}
     try:
-        df = read_csv_from_s3(S3_BUCKET, object_key)    
+        df, sheet_names = read_csv_from_s3(S3_BUCKET, object_key, sheetname)    
         # Convert DataFrame to JSON
         json_str = df.head(25).to_json(orient='records')
-        print(json_str)
-        print_dumb()
-        # Return JSON response
-        return jsonify(json_str)
+        
+        # Return JSON response        
+        response_payload['data'] = df.to_json(orient='records')
+        response_payload['sheet_names'] = sheet_names
+        return jsonify(response_payload)
 
     except Exception as e:        
         return jsonify(pd.DataFrame().to_json(orient='records'))
@@ -660,5 +676,5 @@ def collect_metrics():
 ### -cta- ###
 
 if __name__ == "__main__":
-    # app.run(port=5000)
-    app.run(host="0.0.0.0", port=8080)
+    app.run(port=5000)
+    # app.run(host="0.0.0.0", port=8080)
