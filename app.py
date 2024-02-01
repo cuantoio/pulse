@@ -68,7 +68,7 @@ def run_test():
 
 @app.route('/eb')
 def run_eb():
-    return 'eb-live alpha tri v3.7b'
+    return 'eb-live alpha tri v3.7c'
 
 from decimal import Decimal
 from sklearn.feature_extraction.text import TfidfVectorizer
@@ -538,7 +538,7 @@ def triChat():
 
         # response
         response = openai.ChatCompletion.create(
-            model= "gpt-3.5-turbo", #"ft:gpt-3.5-turbo-1106:triangleai::8U4LPTy8", #"gpt-4-1106-preview", #"ft:gpt-3.5-turbo-1106:triangleai::8U4LPTy8", #"gpt-4-1106-preview"
+            model= "ft:gpt-3.5-turbo-1106:triangleai::8U4LPTy8", #"gpt-4-1106-preview", #"ft:gpt-3.5-turbo-1106:triangleai::8U4LPTy8", #"gpt-4-1106-preview"
             messages=[
                 {
                     "role": "system",
