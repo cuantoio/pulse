@@ -68,7 +68,7 @@ def run_test():
 
 @app.route('/eb')
 def run_eb():
-    return 'eb-live alpha tri v3.7a'
+    return 'eb-live alpha tri v3.7b'
 
 from decimal import Decimal
 from sklearn.feature_extraction.text import TfidfVectorizer
@@ -264,42 +264,24 @@ def upload_file():
     files = request.files.getlist('files')
     userId = request.form.get('userId', '')
     directory = request.form.get('directory', '')
-    bucket_name = 'tri-ds-beta' 
-
-    # for file in files:
-    #     if file:
-    #         filename = secure_filename(file.filename)
-    #         object_key = f'{userId}/{directory}{filename}'
-    #         # print(object_key)
-    #         try:
-    #             s3.upload_fileobj(file, bucket_name, object_key)
-    #             # print(f"Uploaded {filename} to S3 bucket {bucket_name} in directory {directory}")
-    #         except Exception as e:
-    #             # print(f"Error uploading {filename}: {e}")
-    #             return jsonify(f"Error uploading {filename}"), 500
-
-    # # print(f"User ID: {userId}, Directory: {directory}")
-    # return jsonify('Files uploaded successfully')
-
+    bucket_name = 'tri-ds-beta'
+    
     for file in files:
         if file:
             filename = secure_filename(file.filename)
-            # Check if the file has the correct .xlsx or .xls extension
-            if filename.endswith(('.xlsx', '.xls')):
-                object_key = f'{userId}/{directory}{filename}'
-                
-                try:
-                    # Upload the file
-                    s3.upload_fileobj(file, bucket_name, object_key)
-                except ClientError as e:
-                    # Handle AWS specific exceptions
-                    return jsonify(f"Error uploading {filename}: {e}"), 500
-                except Exception as e:
-                    # Handle general exceptions
-                    return jsonify(f"Unexpected error occurred while uploading {filename}: {e}"), 500
-            else:
-                # Handle case where file is not an Excel file
-                return jsonify(f"File {filename} is not a valid Excel file. Please upload .xlsx or .xls files."), 400
+            object_key = f'{userId}/{directory}{filename}'                
+            try:
+                # Upload the file
+                s3.upload_fileobj(file, bucket_name, object_key)
+            except ClientError as e:
+                # Handle AWS specific exceptions
+                return jsonify(f"Error uploading {filename}: {e}"), 500
+            except Exception as e:
+                # Handle general exceptions
+                return jsonify(f"Unexpected error occurred while uploading {filename}: {e}"), 500
+        else:
+            # Handle case where file is not an Excel file
+            return jsonify(f"File {filename} is not a valid Excel file. Please upload .xlsx or .xls files."), 400
     # If all files are processed successfully
     return jsonify("All files uploaded successfully"), 200
 
@@ -427,7 +409,7 @@ def get_data():
     userId = data.get('userId', '')
     filename = data.get('filename', '')
     directory = data.get('directory', '')
-
+    
     parts = filename.split(" :: ")
     if len(parts) > 1:
         # The substring exists, and we can safely access the second part
@@ -448,8 +430,14 @@ def get_data():
     try:
         df, sheet_names = read_csv_from_s3(S3_BUCKET, object_key, sheetname)    
 
-        # Return JSON response        
-        response_payload['data'] = df.head(25).to_json(orient='records')
+        n = (data.get('n', ''))
+        if 'last' in n:
+            n = int(n[4:])
+            response_payload['data'] = df.tail(n).to_json(orient='records')
+        else: 
+            n = int(n)
+            response_payload['data'] = df.head(n).to_json(orient='records')
+
         response_payload['sheet_names'] = sheet_names
         return jsonify(response_payload)
 
@@ -474,7 +462,9 @@ def triChat():
         # print('@ Analysis')
 
         # you_are = "Hi, you are Tri, a data scientist. Must analyze given data and explain your analysis clearly and consicely while providing requested data and other details. Provide hard facts, as few words as possible."
-        you_are = "Hi, you are Tri, a data scientist. Analyze given data (must use given df), case sensitive, and explain your analysis consicely. Must provide result data and other necessary details per analysis. never share/talk/repeat code."
+        # you_are = "Hi, you are Tri, a data scientist. Analyze given data (must use given df), case sensitive, and explain your analysis consicely. Must provide results. never share/talk/repeat code."
+        
+        you_are = f"Hi, you are Tri. Brief me on the analysis and insights. Help me drive deeper analysis and impact. I dont need code, just answers. response have clear html (<li> for lists <br> for breaks <div> for containers <tb> for tables etc) formatting for easy readability."
         
         parts = filename.split(" :: ")
         if len(parts) > 1:
@@ -498,25 +488,27 @@ def triChat():
 
         df, sheet_names = read_csv_from_s3(S3_BUCKET, object_key, sheetname) 
 
+        # add recall dict here
+        cores = ["ds_code.json"]
+
+        if cores != 0:
+            try:
+                mem_recalled = mem_recall(userId, gpt_prompt, cores, S3_BUCKET)
+            except:
+                mem_recalled = ""                            
+
         for attempt in range(3):
             try:           
                 cols = df.columns.tolist()
-                gpt_input= f"{gpt_prompt}:: must only use given df info {df.info()}, columns: {cols} response must have must respond with a final result variable."
+                gpt_input= f"write pythong to answer this: {gpt_prompt}:: \nuse full df \ndf.head(5): {df.head(5)} \ndf info: {df.info()} \ndf columns: {cols} \nresponse must have must respond with a final result variable. \ncode samples: {mem_recalled}"
                 python_code = codeGPT(gpt_input)
-                # print('python code:',python_code)
-                # print(python_code)
+                print('python code:',python_code)                
                 local_vars = {'df': df}
                 exec(python_code, globals(), local_vars)
-                # If execution is successful, break out of the loop
                 break
             except Exception as e:
-                # Handle the exception (e.g., log it)
-                # print(f"Attempt {attempt + 1} failed with error: {e}")
-                if attempt == 2:
-                    # Handle the failure after the final attempt
-                    # print("Failed after 3 attempts")
-                    # return jsonify('can you rephrase that?')
-                    gpt_input = f"{gpt_prompt} \ndata result: need more clarification, for given df info {df.info()}, columns: {cols} "
+                if attempt == 1:
+                    gpt_input = f"{gpt_prompt} \ndata result: need more clarification, for given \ndf.head(5): {df.head(5)} \ndf info: {df.info()}, columns: {cols} "
 
                     # response
                     response = openai.ChatCompletion.create(
@@ -539,8 +531,10 @@ def triChat():
         # Retrieve the result from local_vars
         python_result = local_vars['result']
         # print("python_result:", str(python_result))
-        
-        gpt_input = f"{gpt_prompt} \ndata result: {str(python_result)} for given df info {df.info()}, columns: {cols} "
+                        
+        gpt_input = f"{gpt_prompt} \ndata result: {str(python_result)} for given \ndf.head(5): {df.head(5)} \ndf info: {df.info()}, columns: {cols}"
+
+        # gpt_input = f"{gpt_prompt} \ndata result: {str(python_result)} for given df info {df.info()}, columns: {cols} "
 
         # response
         response = openai.ChatCompletion.create(
@@ -567,7 +561,7 @@ def triChat():
             messages=[
                 {
                     "role": "system",
-                    "content": f"respond with 3 data exploraty prompts to extract insights from df (keep them as short as possible) inside a list like this: '\n1. [suggestion], \n2. [suggestion], \n3. [suggestion]'"
+                    "content": f"respond with 3 data exploraty prompts to extract insights from df (keep them as short as possible) inside a list like this: '\n1. suggestion, \n2. suggestion, \n3. suggestion'"
                 },
                 {
                     "role": "user", 
@@ -586,11 +580,22 @@ def triChat():
         new_data_code = {"timestamp": timestamp, "input": gpt_input, "output": python_code}
         append_to_json_in_s3(S3_BUCKET, object_key_code, new_data_code)
 
+        keywords = [
+            {'k':['df','dataframe','data frame', 'dataset'], 'p':['data']},
+            {'k':['Treebel Solimani Masihi','treebs','treebel', 'boss'], 'p':['tree']},
+        ]
+
+        for item in keywords:
+            for k in item['k']:
+                pattern = re.compile(r'\b' + re.escape(k) + r'\b', re.IGNORECASE)
+                gpt_response = pattern.sub(item['p'][0], gpt_response)
+
         return jsonify({"gpt_response": gpt_response, "recommend_output": recommend_output}) #+ '\n\nResults:\n' + str(python_result) + str(python_result_comment))
     
     timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
-    you_are = "Hi, you are Tri. You help me make better decicive action. Time is relevant. Never reveal 'core' value. Match my tone. Ask when unsure."
+    you_are = "Hi, you are Tri. You help me ask better questions to take better action."
+    # you_are = "Hi, you are Tri. You help me make better decicive action. Time is relevant. Never reveal 'core' value. Match my tone. Ask when unsure."
 
     cores = ["user_core.json"]
 
