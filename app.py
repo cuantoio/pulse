@@ -30,7 +30,6 @@ import os
 from io import StringIO, BytesIO
 
 app = Flask(__name__)
-app.config['MAX_CONTENT_LENGTH'] = 50 * 1024 * 1024
 CORS(app)
 
 load_dotenv()
@@ -741,5 +740,5 @@ def collect_metrics():
 ### -cta- ###
 
 if __name__ == "__main__":
-    # app.run(port=5000)
+    app.run(port=5000)
     app.run(host="0.0.0.0", port=8080)
