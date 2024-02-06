@@ -68,7 +68,7 @@ def run_test():
 
 @app.route('/eb')
 def run_eb():
-    return 'eb-live alpha tri v3.8a'
+    return 'eb-live alpha tri v3.8c'
 
 from decimal import Decimal
 from sklearn.feature_extraction.text import TfidfVectorizer
@@ -740,5 +740,5 @@ def collect_metrics():
 ### -cta- ###
 
 if __name__ == "__main__":
-    app.run(port=5000)
+    # app.run(port=5000)
     app.run(host="0.0.0.0", port=8080)
