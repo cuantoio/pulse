@@ -273,29 +273,41 @@ def get_list():
 @app.route('/upload_file', methods=['POST'])
 def upload_file():
     files = request.files.getlist('files')
-    userId = request.form.get('userId', '')
-    directory = request.form.get('directory', '')
+    user_id = request.form.get('userId', '')
+    directory = request.form.get('directory', '').strip('/')
+
+    # Ensure the bucket name is correctly specified.
     bucket_name = 'tri-ds-beta'
     
-    print("files::",files)
+    if not files:
+        return jsonify("No files provided for upload."), 400
+    
     for file in files:
-        if file:
+        if file and file.filename != '':
             filename = secure_filename(file.filename)
-            object_key = f'{userId}/{directory}{filename}'                
+            if not allowed_file(filename):
+                return jsonify(f"File {filename} is not a valid Excel file. Please upload .xlsx or .xls files."), 400
+            
+            object_key = f"{user_id}/{directory}{filename}" if directory else f"{user_id}/{filename}"
+
             try:
-                # Upload the file
+                # Upload the file to S3
                 s3.upload_fileobj(file, bucket_name, object_key)
             except ClientError as e:
                 # Handle AWS specific exceptions
-                return jsonify(f"Error uploading {filename}: {e}"), 500
+                return jsonify(f"Error uploading {filename} to S3: {str(e)}"), 500
             except Exception as e:
                 # Handle general exceptions
-                return jsonify(f"Unexpected error occurred while uploading {filename}: {e}"), 500
+                return jsonify(f"Unexpected error occurred while uploading {filename}: {str(e)}"), 500
         else:
-            # Handle case where file is not an Excel file
-            return jsonify(f"File {filename} is not a valid Excel file. Please upload .xlsx or .xls files."), 400
+            return jsonify("Missing file or file name."), 400
+
     # If all files are processed successfully
     return jsonify("All files uploaded successfully"), 200
+
+def allowed_file(filename):
+    """Check if the file is an allowed type (Excel files)."""
+    return '.' in filename and filename.rsplit('.', 1)[1].lower() in ['xls', 'xlsx', 'csv']
 
 @app.route('/duplicate', methods=['POST'])
 def duplicate_file():
@@ -728,5 +740,5 @@ def collect_metrics():
 ### -cta- ###
 
 if __name__ == "__main__":
-    # app.run(port=5000)
-    app.run(host="0.0.0.0", port=8080)
+    app.run(port=5000)
+    # app.run(host="0.0.0.0", port=8080)
