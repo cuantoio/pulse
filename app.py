@@ -4,7 +4,7 @@ from boto3.dynamodb.conditions import Key, Attr
 from joblib import Parallel, delayed
 from dotenv import load_dotenv
 from scipy.stats import norm
-# from prophet import Prophet
+from prophet import Prophet
 from textblob import TextBlob
 import yfinance as yf
 import traceback
@@ -68,7 +68,7 @@ def run_test():
 
 @app.route('/eb')
 def run_eb():
-    return 'eb-live alpha tri v3.7c'
+    return 'eb-live alpha tri v3.7d'
 
 from decimal import Decimal
 from sklearn.feature_extraction.text import TfidfVectorizer
@@ -188,6 +188,17 @@ def mem_recall(userId, prompt, cores, bucket_name):
 
     return mem_recall
 
+def chat_recall(userId, bucket_name):  
+
+    object_key = f"{userId}/ent_core/user_core.json"   
+            
+    response = s3.get_object(Bucket=bucket_name, Key=object_key)        
+            
+    # Read the content of the file and parse it as JSON
+    chat_data = json.loads(response['Body'].read())
+
+    return chat_data
+
 from urllib.parse import unquote
 
 def create_directory_in_s3(directory_path):
@@ -266,6 +277,7 @@ def upload_file():
     directory = request.form.get('directory', '')
     bucket_name = 'tri-ds-beta'
     
+    print("files::",files)
     for file in files:
         if file:
             filename = secure_filename(file.filename)
@@ -444,6 +456,13 @@ def get_data():
     except Exception as e:        
         return jsonify(pd.DataFrame().to_json(orient='records'))
 
+def keyReplace(keywords, gpt_response):
+    for item in keywords:
+        for k in item['k']:
+            pattern = re.compile(r'\b' + re.escape(k) + r'\b', re.IGNORECASE)
+            gpt_response = pattern.sub(item['p'][0], gpt_response)
+    return gpt_response
+    
 @app.route('/tri', methods=['POST'])
 def triChat():
     # print('tri - live')
@@ -452,19 +471,20 @@ def triChat():
     userId = request.form.get('userId', 'noid')
     gpt_prompt = request.form.get('prompt')
     feature = request.form.get('feature')
-    filename = request.form.get('filename')    
+    filename = request.form.get('filename', '')    
     directory = request.form.get('directory', '')   
     
     S3_BUCKET = f'tri-ds-beta'
     timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
-    if feature == 'Analysis': 
-        # print('@ Analysis')
-
+    chat_recalled = chat_recall(userId, S3_BUCKET)
+    print("chat_recalled::", chat_recalled)
+    
+    if filename != '':
         # you_are = "Hi, you are Tri, a data scientist. Must analyze given data and explain your analysis clearly and consicely while providing requested data and other details. Provide hard facts, as few words as possible."
-        # you_are = "Hi, you are Tri, a data scientist. Analyze given data (must use given df), case sensitive, and explain your analysis consicely. Must provide results. never share/talk/repeat code."
-        
-        you_are = f"Hi, you are Tri. Brief me on the analysis and insights. Help me drive deeper analysis and impact. I dont need code, just answers. response have clear html (<li> for lists <br> for breaks <div> for containers <tb> for tables etc) formatting for easy readability."
+        # you_are = "Hi, you are Tri, a data scientist. Analyze given data (must use given df), case sensitive, and explain your analysis consicely. Must provide results. never share/talk/repeat code." 
+        # you_are = f"Hi, you are Tri. Brief me on the analysis and insights. Help me drive deeper analysis and impact. I dont need code, just answers. response have clear html (<li> for lists <br> for breaks <div> for containers <tb> for tables etc) formatting for easy readability."
+        you_are = f"Hi, you are Tri. Brief me on the analysis and insights. Help me drive deeper analysis and impact. I dont need code, just answers. response have clear html (<li> for lists <br> for breaks <div> for containers <tb> for tables etc) formatting for easy readability."        
         
         parts = filename.split(" :: ")
         if len(parts) > 1:
@@ -500,7 +520,7 @@ def triChat():
         for attempt in range(3):
             try:           
                 cols = df.columns.tolist()
-                gpt_input= f"write pythong to answer this: {gpt_prompt}:: \nuse full df \ndf.head(5): {df.head(5)} \ndf info: {df.info()} \ndf columns: {cols} \nresponse must have must respond with a final result variable. \ncode samples: {mem_recalled}"
+                gpt_input= f"write python to answer this: {gpt_prompt}:: \nuse full df (df exists and ready). \ndf.head(5): {df.head(5)} \ndf info: {df.info()} \ndf columns: {cols} \nresponse must have must respond with a final result variable. \ncode samples: {mem_recalled}"
                 python_code = codeGPT(gpt_input)
                 print('python code:',python_code)                
                 local_vars = {'df': df}
@@ -508,7 +528,7 @@ def triChat():
                 break
             except Exception as e:
                 if attempt == 1:
-                    gpt_input = f"{gpt_prompt} \ndata result: need more clarification, for given \ndf.head(5): {df.head(5)} \ndf info: {df.info()}, columns: {cols} "
+                    gpt_input = f"{gpt_prompt} \ndata result: need more clarification, for given \ndf.head(5): {df.head(5)} \ndf info: {df.info()}, columns: {cols}, \nprev chat: {chat_recalled}"
 
                     # response
                     response = openai.ChatCompletion.create(
@@ -526,13 +546,20 @@ def triChat():
                     )
 
                     gpt_response = response.choices[0].message['content'].strip()
+                    
+                    keywords = [
+                        {'k':['df','dataframe','data frame', 'dataset'], 'p':['data']},
+                    ]
+
+                    gpt_response = keyReplace(keywords, gpt_response)
+                    
                     return jsonify({"gpt_response": gpt_response, "recommend_output": ""}) 
 
         # Retrieve the result from local_vars
         python_result = local_vars['result']
         # print("python_result:", str(python_result))
                         
-        gpt_input = f"{gpt_prompt} \ndata result: {str(python_result)} for given \ndf.head(5): {df.head(5)} \ndf info: {df.info()}, columns: {cols}"
+        gpt_input = f"{gpt_prompt} \ndata result: {str(python_result)} for given \ndf.head(5): {df.head(5)} \ndf info: {df.info()}, columns: {cols}, \nprev chat: {chat_recalled}"
 
         # gpt_input = f"{gpt_prompt} \ndata result: {str(python_result)} for given df info {df.info()}, columns: {cols} "
 
@@ -580,15 +607,11 @@ def triChat():
         new_data_code = {"timestamp": timestamp, "input": gpt_input, "output": python_code}
         append_to_json_in_s3(S3_BUCKET, object_key_code, new_data_code)
 
-        keywords = [
-            {'k':['df','dataframe','data frame', 'dataset'], 'p':['data']},
-            {'k':['Treebel Solimani Masihi','treebs','treebel', 'boss'], 'p':['tree']},
+        keys_internal = [
+            {'k':['df','dataframe','data frame', 'dataset'], 'p':['data']},            
         ]
 
-        for item in keywords:
-            for k in item['k']:
-                pattern = re.compile(r'\b' + re.escape(k) + r'\b', re.IGNORECASE)
-                gpt_response = pattern.sub(item['p'][0], gpt_response)
+        gpt_response = keyReplace(keys_internal, gpt_response)
 
         return jsonify({"gpt_response": gpt_response, "recommend_output": recommend_output}) #+ '\n\nResults:\n' + str(python_result) + str(python_result_comment))
     
@@ -603,10 +626,10 @@ def triChat():
         try:
             mem_recalled = mem_recall(userId, gpt_prompt, cores, S3_BUCKET)
             # print(timestamp, mem_recalled)
-            gpt_input_w_mem = f"current time & date: {timestamp}, my prompt: {gpt_prompt}. your knowledge: {mem_recalled}"
+            gpt_input_w_mem = f"current time & date: {timestamp}, my prompt: {gpt_prompt}. your knowledge: {mem_recalled}, \nprev chat: {chat_recalled}"
         except:
             mem_recalled = ""
-            gpt_input_w_mem = f"current time & date: {timestamp}, my prompt: {gpt_prompt}."
+            gpt_input_w_mem = f"current time & date: {timestamp}, my prompt: {gpt_prompt}., \nprev chat: {chat_recalled}"
 
     # response
     response = openai.ChatCompletion.create(
@@ -632,6 +655,13 @@ def triChat():
     append_to_json_in_s3(S3_BUCKET, object_key, new_data)
 
     recommend_output = ""    
+
+    keys_internal = [
+        {'k':['df','dataframe','data frame', 'dataset'], 'p':['data']},
+    ]
+
+    gpt_response = keyReplace(keys_internal, gpt_response)
+    
     return jsonify({"gpt_response": gpt_response, "recommend_output": recommend_output})
 
 ### -tri- ###
@@ -698,5 +728,5 @@ def collect_metrics():
 ### -cta- ###
 
 if __name__ == "__main__":
-    app.run(port=5000)
-    # app.run(host="0.0.0.0", port=8080)
+    # app.run(port=5000)
+    app.run(host="0.0.0.0", port=8080)
