@@ -30,6 +30,8 @@ import os
 from io import StringIO, BytesIO
 
 app = Flask(__name__)
+app.config['MAX_CONTENT_LENGTH'] = 50 * 1024 * 1024 # 50 MB
+
 CORS(app)
 
 load_dotenv()
@@ -68,7 +70,7 @@ def run_test():
 
 @app.route('/eb')
 def run_eb():
-    return 'eb-live alpha tri v3.8c'
+    return 'eb-live alpha tri v3.9'
 
 from decimal import Decimal
 from sklearn.feature_extraction.text import TfidfVectorizer
