@@ -70,7 +70,7 @@ def run_test():
 
 @app.route('/eb')
 def run_eb():
-    return 'eb-live alpha tri v3.9d'
+    return 'eb-live alpha tri v3.9e'
 
 from decimal import Decimal
 from sklearn.feature_extraction.text import TfidfVectorizer
