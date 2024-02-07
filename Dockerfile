@@ -11,6 +11,6 @@ RUN pip install --no-cache-dir -r requirements.txt
 
 COPY . .
 
-EXPOSE 80 
+EXPOSE 8080
 
-CMD ["sh", "-c", "service nginx start && gunicorn wsgi:app -w 2 -b unix:/tmp/gunicorn.sock"]
+CMD ["gunicorn", "wsgi:app", "-w 2", "-b 0.0.0.0:8080", "-t 30"]
