@@ -1,6 +1,6 @@
 FROM python:3.9-slim-buster
 WORKDIR /backend
-COPY requirements.txt ./
+COPY requirements.txt requirements.txt
 RUN pip install --no-cache-dir -r requirements.txt
 EXPOSE 8080
 COPY . .
