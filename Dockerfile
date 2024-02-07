@@ -2,7 +2,7 @@ FROM python:3.9-slim-buster
 
 RUN apt-get update && apt-get install -y nginx && rm -rf /var/lib/apt/lists/*
 
-COPY nginx.conf /etc/nginx/sites-available/default
+COPY nginx.conf /etc/nginx/nginx.conf
 
 WORKDIR /backend
 
